@@ -18,6 +18,18 @@
 
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 
+fun Project.resolveVersionFromTag(expectedTagPrefix: String): String? {
+    val refName = System.getenv("GITHUB_REF_NAME") ?: System.getenv("GITHUB_REF")?.removePrefix("refs/tags/")
+    val fromEnv =
+        refName
+            ?.trim()
+            ?.takeIf { it.startsWith(expectedTagPrefix) }
+            ?.removePrefix(expectedTagPrefix)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+    return fromEnv
+}
+
 buildscript {
     repositories {
         mavenCentral()
@@ -37,9 +49,17 @@ plugins {
     alias(libs.plugins.mavenPublish) apply false
 }
 
+val defaultProjectVersion = project.findProperty("project.version") as String
+val resolvedProjectVersion =
+    project.resolveVersionFromTag(
+        expectedTagPrefix = "java/code-interpreter/v",
+    ) ?: defaultProjectVersion
+
+extra["project.version"] = resolvedProjectVersion
+
 allprojects {
     group = project.findProperty("project.group") as String
-    version = project.findProperty("project.version") as String
+    version = resolvedProjectVersion
 
     repositories {
         mavenCentral()
