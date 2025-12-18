@@ -1,0 +1,26 @@
+apiVersion: sandbox.opensandbox.io/v1alpha1
+kind: Pool
+metadata:
+  labels:
+    app.kubernetes.io/name: sandbox-k8s
+    app.kubernetes.io/managed-by: kustomize
+  name: pool-sample
+  namespace: sandbox-k8s
+spec:
+  template:
+    metadata:
+      labels:
+        app: example
+    spec:
+      containers:
+        - name: executor
+          image: reg.docker.alibaba-inc.com/sandbox-k8s/task-executor:1.0.6
+          command:
+            - /server
+      tolerations:
+        - operator: "Exists"
+  capacitySpec:
+    bufferMax: 3
+    bufferMin: 1
+    poolMax: 5
+    poolMin: 0
