@@ -51,6 +51,28 @@ public class SandboxManagerE2ETest extends BaseE2ETest {
     private Sandbox s3;
     private String tag;
 
+    private static Map<String, String> createMetadata(String tag, String team, String env) {
+        Map<String, String> map = new HashMap<>();
+        map.put("tag", tag);
+        map.put("team", team);
+        map.put("env", env);
+        return map;
+    }
+
+    private static Map<String, String> createMetadataSimple(String tag, String env) {
+        Map<String, String> map = new HashMap<>();
+        map.put("tag", tag);
+        map.put("env", env);
+        return map;
+    }
+
+    private static Map<String, String> createMetadataTwoKeys(String tag, String key, String value) {
+        Map<String, String> map = new HashMap<>();
+        map.put("tag", tag);
+        map.put(key, value);
+        return map;
+    }
+
     @BeforeAll
     void setup() throws InterruptedException {
         sandboxManager = SandboxManager.builder().connectionConfig(sharedConnectionConfig).build();
@@ -66,7 +88,7 @@ public class SandboxManagerE2ETest extends BaseE2ETest {
                         .resource(resourceMap)
                         .timeout(Duration.ofMinutes(5))
                         .readyTimeout(Duration.ofSeconds(60))
-                        .metadata(Map.of("tag", tag, "team", "t1", "env", "prod"))
+                        .metadata(createMetadata(tag, "t1", "prod"))
                         .env("E2E_TEST", "true")
                         .healthCheckPollingInterval(Duration.ofMillis(500))
                         .build();
@@ -77,7 +99,7 @@ public class SandboxManagerE2ETest extends BaseE2ETest {
                         .resource(resourceMap)
                         .timeout(Duration.ofMinutes(5))
                         .readyTimeout(Duration.ofSeconds(60))
-                        .metadata(Map.of("tag", tag, "team", "t1", "env", "dev"))
+                        .metadata(createMetadata(tag, "t1", "dev"))
                         .env("E2E_TEST", "true")
                         .healthCheckPollingInterval(Duration.ofMillis(500))
                         .build();
@@ -88,7 +110,7 @@ public class SandboxManagerE2ETest extends BaseE2ETest {
                         .resource(resourceMap)
                         .timeout(Duration.ofMinutes(5))
                         .readyTimeout(Duration.ofSeconds(60))
-                        .metadata(Map.of("tag", tag, "env", "prod"))
+                        .metadata(createMetadataSimple(tag, "prod"))
                         .env("E2E_TEST", "true")
                         .healthCheckPollingInterval(Duration.ofMillis(500))
                         .build();
@@ -112,7 +134,7 @@ public class SandboxManagerE2ETest extends BaseE2ETest {
 
     @AfterAll
     void teardown() {
-        for (Sandbox s : List.of(s1, s2, s3)) {
+        for (Sandbox s : Arrays.asList(s1, s2, s3)) {
             if (s == null) continue;
             try {
                 s.kill();
@@ -139,7 +161,7 @@ public class SandboxManagerE2ETest extends BaseE2ETest {
         SandboxFilter filter =
                 SandboxFilter.builder()
                         .states("Running", "Paused")
-                        .metadata(Map.of("tag", tag))
+                        .metadata(Collections.singletonMap("tag", tag))
                         .pageSize(50)
                         .build();
         PagedSandboxInfos infos = sandboxManager.listSandboxInfos(filter);
@@ -147,13 +169,14 @@ public class SandboxManagerE2ETest extends BaseE2ETest {
         for (SandboxInfo info : infos.getSandboxInfos()) {
             ids.add(info.getId());
         }
-        assertTrue(ids.containsAll(Set.of(s1.getId(), s2.getId(), s3.getId())));
+        assertTrue(
+                ids.containsAll(new HashSet<>(Arrays.asList(s1.getId(), s2.getId(), s3.getId()))));
 
         PagedSandboxInfos pausedOnly =
                 sandboxManager.listSandboxInfos(
                         SandboxFilter.builder()
                                 .states("Paused")
-                                .metadata(Map.of("tag", tag))
+                                .metadata(Collections.singletonMap("tag", tag))
                                 .pageSize(50)
                                 .build());
         Set<UUID> pausedIds = new HashSet<>();
@@ -168,7 +191,7 @@ public class SandboxManagerE2ETest extends BaseE2ETest {
                 sandboxManager.listSandboxInfos(
                         SandboxFilter.builder()
                                 .states("Running")
-                                .metadata(Map.of("tag", tag))
+                                .metadata(Collections.singletonMap("tag", tag))
                                 .pageSize(50)
                                 .build());
         Set<UUID> runningIds = new HashSet<>();
@@ -188,7 +211,7 @@ public class SandboxManagerE2ETest extends BaseE2ETest {
         PagedSandboxInfos tagAndTeam =
                 sandboxManager.listSandboxInfos(
                         SandboxFilter.builder()
-                                .metadata(Map.of("tag", tag, "team", "t1"))
+                                .metadata(createMetadataTwoKeys(tag, "team", "t1"))
                                 .pageSize(50)
                                 .build());
         Set<UUID> ids = new HashSet<>();
@@ -202,7 +225,7 @@ public class SandboxManagerE2ETest extends BaseE2ETest {
         PagedSandboxInfos tagTeamEnv =
                 sandboxManager.listSandboxInfos(
                         SandboxFilter.builder()
-                                .metadata(Map.of("tag", tag, "team", "t1", "env", "prod"))
+                                .metadata(createMetadata(tag, "t1", "prod"))
                                 .pageSize(50)
                                 .build());
         Set<UUID> ids2 = new HashSet<>();
@@ -216,7 +239,7 @@ public class SandboxManagerE2ETest extends BaseE2ETest {
         PagedSandboxInfos tagEnv =
                 sandboxManager.listSandboxInfos(
                         SandboxFilter.builder()
-                                .metadata(Map.of("tag", tag, "env", "prod"))
+                                .metadata(createMetadataSimple(tag, "prod"))
                                 .pageSize(50)
                                 .build());
         Set<UUID> ids3 = new HashSet<>();
@@ -230,11 +253,13 @@ public class SandboxManagerE2ETest extends BaseE2ETest {
         PagedSandboxInfos noneMatch =
                 sandboxManager.listSandboxInfos(
                         SandboxFilter.builder()
-                                .metadata(Map.of("tag", tag, "team", "t2"))
+                                .metadata(createMetadataTwoKeys(tag, "team", "t2"))
                                 .pageSize(50)
                                 .build());
         for (SandboxInfo info : noneMatch.getSandboxInfos()) {
-            assertFalse(Set.of(s1.getId(), s2.getId(), s3.getId()).contains(info.getId()));
+            assertFalse(
+                    new HashSet<>(Arrays.asList(s1.getId(), s2.getId(), s3.getId()))
+                            .contains(info.getId()));
         }
     }
 

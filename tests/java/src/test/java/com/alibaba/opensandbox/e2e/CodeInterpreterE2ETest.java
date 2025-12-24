@@ -30,9 +30,7 @@ import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.SandboxInfo;
 import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.SandboxMetrics;
 import java.time.Duration;
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.*;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
@@ -58,6 +56,13 @@ public class CodeInterpreterE2ETest extends BaseE2ETest {
     private Sandbox sandbox;
     private CodeInterpreter codeInterpreter;
 
+    private static Map<String, String> createResourceMap() {
+        Map<String, String> map = new HashMap<>();
+        map.put("cpu", "2");
+        map.put("memory", "4Gi");
+        return map;
+    }
+
     private static void assertTerminalEventContract(
             List<ExecutionInit> initEvents,
             List<ExecutionComplete> completedEvents,
@@ -65,7 +70,7 @@ public class CodeInterpreterE2ETest extends BaseE2ETest {
             String executionId) {
         assertEquals(1, initEvents.size(), "init event must exist exactly once");
         assertNotNull(initEvents.get(0).getId());
-        assertFalse(initEvents.get(0).getId().isBlank());
+        assertFalse(initEvents.get(0).getId().trim().isEmpty());
         assertEquals(executionId, initEvents.get(0).getId());
         assertRecentTimestampMs(initEvents.get(0).getTimestamp(), 180_000);
         assertTrue(
@@ -78,7 +83,7 @@ public class CodeInterpreterE2ETest extends BaseE2ETest {
         }
         if (!errors.isEmpty()) {
             assertNotNull(errors.get(0).getName());
-            assertFalse(errors.get(0).getName().isBlank());
+            assertFalse(errors.get(0).getName().trim().isEmpty());
             assertNotNull(errors.get(0).getValue());
             assertRecentTimestampMs(errors.get(0).getTimestamp(), 180_000);
         }
@@ -89,12 +94,13 @@ public class CodeInterpreterE2ETest extends BaseE2ETest {
         sandbox =
                 Sandbox.builder()
                         .connectionConfig(sharedConnectionConfig)
-                        .entrypoint(List.of("/opt/opensandbox/code-interpreter.sh"))
+                        .entrypoint(
+                                Collections.singletonList("/opt/opensandbox/code-interpreter.sh"))
                         .image(getSandboxImage())
-                        .resource(java.util.Map.of("cpu", "2", "memory", "4Gi"))
+                        .resource(createResourceMap())
                         .timeout(Duration.ofMinutes(15))
                         .readyTimeout(Duration.ofSeconds(60))
-                        .metadata(java.util.Map.of("tag", "e2e-code-interpreter"))
+                        .metadata(Collections.singletonMap("tag", "e2e-code-interpreter"))
                         .env("E2E_TEST", "true")
                         .env("GO_VERSION", "1.25")
                         .env("JAVA_VERSION", "21")
@@ -249,7 +255,7 @@ public class CodeInterpreterE2ETest extends BaseE2ETest {
 
         assertNotNull(simpleResult);
         assertNotNull(simpleResult.getId());
-        assertFalse(simpleResult.getId().isBlank());
+        assertFalse(simpleResult.getId().trim().isEmpty());
         assertEquals("4", simpleResult.getResult().get(0).getText());
         assertTerminalEventContract(initEvents, completedEvents, errors, simpleResult.getId());
         assertTrue(errors.isEmpty());

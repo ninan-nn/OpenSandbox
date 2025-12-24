@@ -102,7 +102,7 @@ public class SandboxE2ETest extends BaseE2ETest {
             String executionId) {
         assertEquals(1, initEvents.size(), "Execution must have exactly one init event");
         assertNotNull(initEvents.get(0).getId());
-        assertFalse(initEvents.get(0).getId().isBlank());
+        assertFalse(initEvents.get(0).getId().trim().isEmpty());
         assertEquals(executionId, initEvents.get(0).getId(), "init.id must match execution.id");
         assertRecentTimestampMs(initEvents.get(0).getTimestamp(), 120_000);
 
@@ -121,7 +121,7 @@ public class SandboxE2ETest extends BaseE2ETest {
         }
         if (hasError) {
             assertNotNull(errors.get(0).getName());
-            assertFalse(errors.get(0).getName().isBlank());
+            assertFalse(errors.get(0).getName().trim().isEmpty());
             assertNotNull(errors.get(0).getValue());
             assertRecentTimestampMs(errors.get(0).getTimestamp(), 180_000);
         }
@@ -142,7 +142,7 @@ public class SandboxE2ETest extends BaseE2ETest {
         assertNotNull(info.getCreatedAt());
         assertNotNull(info.getExpiresAt());
         assertTrue(info.getExpiresAt().isAfter(info.getCreatedAt()));
-        assertEquals(List.of("tail", "-f", "/dev/null"), info.getEntrypoint());
+        assertEquals(Arrays.asList("tail", "-f", "/dev/null"), info.getEntrypoint());
 
         Duration duration = Duration.between(info.getCreatedAt(), info.getExpiresAt());
         assertTrue(duration.compareTo(Duration.ofMinutes(1)) >= 0);
@@ -261,7 +261,7 @@ public class SandboxE2ETest extends BaseE2ETest {
 
         assertNotNull(echoResult);
         assertNotNull(echoResult.getId());
-        assertFalse(echoResult.getId().isBlank());
+        assertFalse(echoResult.getId().trim().isEmpty());
         assertNull(echoResult.getError());
         assertEquals(1, echoResult.getLogs().getStdout().size());
         assertEquals("Hello OpenSandbox E2E", echoResult.getLogs().getStdout().get(0).getText());
@@ -316,7 +316,7 @@ public class SandboxE2ETest extends BaseE2ETest {
         Execution failResult = sandbox.commands().run(failRequest);
         assertNotNull(failResult);
         assertNotNull(failResult.getId());
-        assertFalse(failResult.getId().isBlank());
+        assertFalse(failResult.getId().trim().isEmpty());
         assertNotNull(failResult.getError());
         assertEquals("CommandExecError", failResult.getError().getName());
         assertTrue(failResult.getLogs().getStderr().size() > 0);
@@ -350,9 +350,10 @@ public class SandboxE2ETest extends BaseE2ETest {
         WriteEntry dirEntry1 = WriteEntry.builder().path(testDir1).mode(755).build();
         WriteEntry dirEntry2 = WriteEntry.builder().path(testDir2).mode(644).build();
 
-        sandbox.files().createDirectories(List.of(dirEntry1, dirEntry2));
+        sandbox.files().createDirectories(Arrays.asList(dirEntry1, dirEntry2));
 
-        Map<String, EntryInfo> dirInfo = sandbox.files().readFileInfo(List.of(testDir1, testDir2));
+        Map<String, EntryInfo> dirInfo =
+                sandbox.files().readFileInfo(Arrays.asList(testDir1, testDir2));
         assertEquals(testDir1, dirInfo.get(testDir1).getPath());
         assertEquals(755, dirInfo.get(testDir1).getMode());
         assertTimesClose(
@@ -392,7 +393,7 @@ public class SandboxE2ETest extends BaseE2ETest {
                         .mode(755)
                         .build();
 
-        sandbox.files().write(List.of(writeEntry1, writeEntry2, writeEntry3));
+        sandbox.files().write(Arrays.asList(writeEntry1, writeEntry2, writeEntry3));
 
         String readContent1 =
                 sandbox.files().readFile(testFile1, StandardCharsets.UTF_8.name(), null);
@@ -403,7 +404,13 @@ public class SandboxE2ETest extends BaseE2ETest {
         String readContent2 = new String(readBytes2, StandardCharsets.UTF_8);
 
         try (java.io.InputStream inputStream = sandbox.files().readStream(testFile3, null)) {
-            byte[] streamBytes = inputStream.readAllBytes();
+            java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
+            int nRead;
+            byte[] data = new byte[1024];
+            while ((nRead = inputStream.read(data, 0, data.length)) != -1) {
+                buffer.write(data, 0, nRead);
+            }
+            byte[] streamBytes = buffer.toByteArray();
             String readContent3 = new String(streamBytes, StandardCharsets.UTF_8);
 
             // Verify content matches original for all files
@@ -420,7 +427,7 @@ public class SandboxE2ETest extends BaseE2ETest {
             throw new RuntimeException("Failed to read stream", e);
         }
 
-        List<String> allTestFiles = List.of(testFile1, testFile2, testFile3);
+        List<String> allTestFiles = Arrays.asList(testFile1, testFile2, testFile3);
         Map<String, EntryInfo> fileInfoMap = sandbox.files().readFileInfo(allTestFiles);
         long expectedSize = testContent.getBytes(StandardCharsets.UTF_8).length;
 
@@ -456,7 +463,7 @@ public class SandboxE2ETest extends BaseE2ETest {
         for (EntryInfo e : sandbox.files().search(searchAllEntry)) {
             found.add(e.getPath());
         }
-        assertEquals(Set.of(testFile1, testFile2, testFile3), found);
+        assertEquals(new HashSet<>(Arrays.asList(testFile1, testFile2, testFile3)), found);
 
         SetPermissionEntry permEntry1 =
                 SetPermissionEntry.builder()
@@ -472,11 +479,11 @@ public class SandboxE2ETest extends BaseE2ETest {
                         .owner("nobody")
                         .group("nogroup")
                         .build();
-        sandbox.files().setPermissions(List.of(permEntry1, permEntry2));
+        sandbox.files().setPermissions(Arrays.asList(permEntry1, permEntry2));
 
         // Verify permission changes for both files in single call
         Map<String, EntryInfo> updatedInfoMap =
-                sandbox.files().readFileInfo(List.of(testFile1, testFile2));
+                sandbox.files().readFileInfo(Arrays.asList(testFile1, testFile2));
         EntryInfo updatedInfo1 = updatedInfoMap.get(testFile1);
         EntryInfo updatedInfo2 = updatedInfoMap.get(testFile2);
 
@@ -494,7 +501,8 @@ public class SandboxE2ETest extends BaseE2ETest {
         assertEquals(
                 "nogroup", updatedInfo2.getGroup(), "testFile2 group should be updated to nogroup");
 
-        EntryInfo beforeUpdate = sandbox.files().readFileInfo(List.of(testFile1)).get(testFile1);
+        EntryInfo beforeUpdate =
+                sandbox.files().readFileInfo(Collections.singletonList(testFile1)).get(testFile1);
         String updatedContent1 = testContent + "\nAppended line to file1";
         String updatedContent2 = testContent + "\nAppended line to file2";
         try {
@@ -505,14 +513,15 @@ public class SandboxE2ETest extends BaseE2ETest {
                 WriteEntry.builder().path(testFile1).data(updatedContent1).mode(644).build();
         WriteEntry updateEntry2 =
                 WriteEntry.builder().path(testFile2).data(updatedContent2).mode(755).build();
-        sandbox.files().write(List.of(updateEntry1, updateEntry2));
+        sandbox.files().write(Arrays.asList(updateEntry1, updateEntry2));
 
         String newContent1 = sandbox.files().readFile(testFile1, "UTF-8", null);
         String newContent2 = sandbox.files().readFile(testFile2, "UTF-8", null);
         assertEquals(updatedContent1, newContent1);
         assertEquals(updatedContent2, newContent2);
 
-        EntryInfo afterUpdate = sandbox.files().readFileInfo(List.of(testFile1)).get(testFile1);
+        EntryInfo afterUpdate =
+                sandbox.files().readFileInfo(Collections.singletonList(testFile1)).get(testFile1);
         assertEquals(
                 updatedContent1.getBytes(StandardCharsets.UTF_8).length, afterUpdate.getSize());
         assertModifiedUpdated(beforeUpdate.getModifiedAt(), afterUpdate.getModifiedAt(), 1, 1000);
@@ -525,7 +534,7 @@ public class SandboxE2ETest extends BaseE2ETest {
         }
         sandbox.files()
                 .replaceContents(
-                        List.of(
+                        Collections.singletonList(
                                 ContentReplaceEntry.builder()
                                         .path(testFile1)
                                         .oldContent("Appended line to file1")
@@ -534,30 +543,33 @@ public class SandboxE2ETest extends BaseE2ETest {
         String replaced = sandbox.files().readFile(testFile1, "UTF-8", null);
         assertTrue(replaced.contains("Replaced line in file1"));
         assertFalse(replaced.contains("Appended line to file1"));
-        EntryInfo afterReplace = sandbox.files().readFileInfo(List.of(testFile1)).get(testFile1);
+        EntryInfo afterReplace =
+                sandbox.files().readFileInfo(Collections.singletonList(testFile1)).get(testFile1);
         assertModifiedUpdated(beforeReplace.getModifiedAt(), afterReplace.getModifiedAt(), 1, 1000);
 
         // Move file3
         String movedPath = testDir2 + "/moved_file3.txt";
         sandbox.files()
-                .moveFiles(List.of(MoveEntry.builder().src(testFile3).dest(movedPath).build()));
+                .moveFiles(
+                        Collections.singletonList(
+                                MoveEntry.builder().src(testFile3).dest(movedPath).build()));
         String moved =
                 new String(sandbox.files().readByteArray(movedPath, null), StandardCharsets.UTF_8);
         assertEquals(testContent, moved);
         assertThrows(Exception.class, () -> sandbox.files().readByteArray(testFile3, null));
 
         // Delete file2
-        sandbox.files().deleteFiles(List.of(testFile2));
+        sandbox.files().deleteFiles(Collections.singletonList(testFile2));
         assertThrows(Exception.class, () -> sandbox.files().readFile(testFile2, "UTF-8", null));
         Set<String> after = new HashSet<>();
         for (EntryInfo e :
                 sandbox.files().search(SearchEntry.builder().path(testDir1).pattern("*").build())) {
             after.add(e.getPath());
         }
-        assertEquals(Set.of(testFile1), after);
+        assertEquals(Collections.singleton(testFile1), after);
 
         // Delete directories
-        sandbox.files().deleteDirectories(List.of(testDir1, testDir2));
+        sandbox.files().deleteDirectories(Arrays.asList(testDir1, testDir2));
         Execution verify =
                 sandbox.commands()
                         .run(

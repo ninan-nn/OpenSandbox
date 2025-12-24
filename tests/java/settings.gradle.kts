@@ -15,3 +15,7 @@
  */
 
 rootProject.name = "opensandbox-java-e2e-tests"
+
+plugins {
+    id("org.gradle.toolchains.foojay-resolver-convention") version("1.0.0")
+}
