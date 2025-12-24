@@ -109,14 +109,14 @@ public abstract class BaseE2ETest {
                     endpoint.endsWith("/" + expectedPort),
                     "endpoint route must end with /" + expectedPort + ": " + endpoint);
             String prefix = endpoint.split("/", 2)[0];
-            assertFalse(prefix.isBlank(), "missing domain in endpoint: " + endpoint);
+            assertFalse(prefix.trim().isEmpty(), "missing domain in endpoint: " + endpoint);
             return;
         }
         int idx = endpoint.lastIndexOf(':');
         assertTrue(idx > 0, "missing host:port in endpoint: " + endpoint);
         String host = endpoint.substring(0, idx);
         String port = endpoint.substring(idx + 1);
-        assertFalse(host.isBlank(), "missing host in endpoint: " + endpoint);
+        assertFalse(host.trim().isEmpty(), "missing host in endpoint: " + endpoint);
         assertTrue(port.matches("\\d+"), "non-numeric port in endpoint: " + endpoint);
         assertEquals(expectedPort, Integer.parseInt(port), "endpoint port mismatch: " + endpoint);
     }
