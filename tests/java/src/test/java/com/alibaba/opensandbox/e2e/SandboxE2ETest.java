@@ -404,7 +404,13 @@ public class SandboxE2ETest extends BaseE2ETest {
         String readContent2 = new String(readBytes2, StandardCharsets.UTF_8);
 
         try (java.io.InputStream inputStream = sandbox.files().readStream(testFile3, null)) {
-            byte[] streamBytes = inputStream.readAllBytes();
+            java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
+            int nRead;
+            byte[] data = new byte[1024];
+            while ((nRead = inputStream.read(data, 0, data.length)) != -1) {
+                buffer.write(data, 0, nRead);
+            }
+            byte[] streamBytes = buffer.toByteArray();
             String readContent3 = new String(streamBytes, StandardCharsets.UTF_8);
 
             // Verify content matches original for all files
