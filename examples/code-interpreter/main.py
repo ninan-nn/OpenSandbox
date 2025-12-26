@@ -24,7 +24,10 @@ from opensandbox.config import ConnectionConfig
 async def main() -> None:
     domain = os.getenv("SANDBOX_DOMAIN", "localhost:8080")
     api_key = os.getenv("SANDBOX_API_KEY")
-    image = os.getenv("SANDBOX_IMAGE", "opensandbox/code-interpreter:latest")
+    image = os.getenv(
+        "SANDBOX_IMAGE",
+        "sandbox-registry.cn-zhangjiakou.cr.aliyuncs.com/opensandbox/code-interpreter:latest",
+    )
 
     config = ConnectionConfig(
         domain=domain,
