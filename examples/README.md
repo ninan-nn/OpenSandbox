@@ -3,7 +3,6 @@
 Examples for common OpenSandbox use cases. Each subdirectory contains runnable code and documentation.
 
 ## Integrations / Sandboxes
-- [**echo**](echo): Minimal example using Ubuntu image to execute a simple echo command
 - [**aio-sandbox**](aio-sandbox): Basic example for agent_sandbox
 - [**code-interpreter**](code-interpreter): Code Interpreter SDK singleton example
 - [**claude-code**](claude-code): Call Claude (Anthropic) API/CLI within the sandbox
@@ -11,6 +10,7 @@ Examples for common OpenSandbox use cases. Each subdirectory contains runnable c
 - [**gemini-cli**](gemini-cli): Call Google Gemini within the sandbox
 - [**codex-cli**](codex-cli): Call OpenAI/Codex-like models within the sandbox
 - [**langgraph**](langgraph): LangGraph agent orchestrating sandbox lifecycle + tools
+- [**google-adk**](google-adk): Google ADK agent calling OpenSandbox tools
 - [**desktop**](desktop): Launch VNC desktop (Xvfb + x11vnc) for VNC client connections
 - [**playwright**](playwright): Launch headless browser (Playwright + Chromium) to scrape web content
 - [**vscode**](vscode): Launch code-server (VS Code Web) to provide browser access
