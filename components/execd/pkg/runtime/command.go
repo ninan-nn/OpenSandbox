@@ -25,6 +25,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
@@ -58,10 +59,14 @@ func (c *Controller) runCommand(ctx context.Context, request *ExecuteCodeRequest
 	cmd.Stderr = stderr
 
 	done := make(chan struct{}, 1)
+	var wg sync.WaitGroup
+	wg.Add(2)
 	safego.Go(func() {
+		defer wg.Done()
 		c.tailStdPipe(stdoutPath, request.Hooks.OnExecuteStdout, done)
 	})
 	safego.Go(func() {
+		defer wg.Done()
 		c.tailStdPipe(stderrPath, request.Hooks.OnExecuteStderr, done)
 	})
 
@@ -109,6 +114,7 @@ func (c *Controller) runCommand(ctx context.Context, request *ExecuteCodeRequest
 
 	err = cmd.Wait()
 	close(done)
+	wg.Wait()
 	if err != nil {
 		var eName, eValue string
 		var eCode int
