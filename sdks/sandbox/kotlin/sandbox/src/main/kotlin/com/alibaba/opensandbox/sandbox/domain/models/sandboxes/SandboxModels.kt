@@ -108,7 +108,7 @@ class SandboxFilter private constructor(
         }
 
         fun page(page: Int): Builder {
-            require(page >= 0) { "Page must be non-negative" }
+            require(page > 0) { "Page must be positive" }
             this.page = page
             return this
         }
@@ -261,6 +261,15 @@ class SandboxStatus(
  */
 class SandboxCreateResponse(
     val id: UUID,
+)
+
+/**
+ * Response returned when a sandbox is renewed
+ *
+ * @property expiresAt new expire time after renewal
+ */
+class SandboxRenewResponse(
+    val expiresAt: java.time.OffsetDateTime,
 )
 
 /**
