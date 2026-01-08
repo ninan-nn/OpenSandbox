@@ -174,7 +174,7 @@ func (c *Controller) runBackgroundCommand(_ context.Context, request *ExecuteCod
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Stdout = pipe
 	cmd.Stderr = pipe
-  cmd.Env = mergeEnvs(os.Environ(), loadExtraEnvFromFile())
+	cmd.Env = mergeEnvs(os.Environ(), loadExtraEnvFromFile())
 
 	// use DevNull as stdin so interactive programs exit immediately.
 	cmd.Stdin = os.NewFile(uintptr(syscall.Stdin), os.DevNull)
