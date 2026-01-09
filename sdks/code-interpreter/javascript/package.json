@@ -1,0 +1,37 @@
+{
+  "name": "@alibaba/opensandbox-code-interpreter",
+  "version": "0.1.0",
+  "description": "OpenSandbox Code Interpreter TypeScript/JavaScript SDK",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@alibaba/opensandbox": "^0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  },
+  "pnpm": {
+    "overrides": {
+      "@alibaba/opensandbox": "link:../../sandbox/javascript"
+    }
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "name": "@alibaba/opensandbox",
+  "version": "0.1.0",
+  "description": "OpenSandbox TypeScript/JavaScript SDK (sandbox lifecycle + execd APIs)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./internal": {
+      "types": "./dist/internal.d.ts",
+      "default": "./dist/internal.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "gen:api": "node ./scripts/generate-api.mjs",
+    "build": "pnpm run gen:api && tsc -p tsconfig.json",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "openapi-fetch": "^0.13.8"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.9.1",
+    "typescript": "^5.7.2"
+  }
+}
+
+
