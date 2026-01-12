@@ -18,6 +18,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/alibaba/OpenSandbox/sandbox-k8s/internal/task-executor/types"
 	"github.com/alibaba/OpenSandbox/sandbox-k8s/internal/task-executor/utils"
 	"github.com/stretchr/testify/assert"
+	corev1 "k8s.io/api/core/v1"
 )
 
 func setupTestExecutor(t *testing.T) (Executor, string) {
@@ -244,4 +246,58 @@ func TestNewExecutor(t *testing.T) {
 	if _, err := NewExecutor(nil); err == nil {
 		t.Error("NewExecutor should fail with nil config")
 	}
+}
+
+func TestProcessExecutor_EnvInheritance(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not found")
+	}
+
+	// 1. Setup Host Environment
+	expectedHostVar := "HOST_TEST_VAR=host_value"
+	os.Setenv("HOST_TEST_VAR", "host_value")
+	defer os.Unsetenv("HOST_TEST_VAR")
+
+	executor, _ := setupTestExecutor(t)
+	pExecutor := executor.(*processExecutor)
+	ctx := context.Background()
+
+	// 2. Define Task with Custom Env
+	task := &types.Task{
+		Name: "env-test",
+		Spec: v1alpha1.TaskSpec{
+			Process: &v1alpha1.ProcessTask{
+				Command: []string{"env"},
+				Env: []corev1.EnvVar{
+					{Name: "TASK_TEST_VAR", Value: "task_value"},
+				},
+			},
+		},
+	}
+	expectedTaskVar := "TASK_TEST_VAR=task_value"
+
+	taskDir, err := utils.SafeJoin(pExecutor.rootDir, task.Name)
+	assert.Nil(t, err)
+	os.MkdirAll(taskDir, 0755)
+
+	// 3. Start Task
+	if err := executor.Start(ctx, task); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	// 4. Wait for completion
+	time.Sleep(200 * time.Millisecond)
+
+	status, err := executor.Inspect(ctx, task)
+	assert.Nil(t, err)
+	assert.Equal(t, types.TaskStateSucceeded, status.State)
+
+	// 5. Verify Output
+	stdoutPath := filepath.Join(taskDir, StdoutFile)
+	output, err := os.ReadFile(stdoutPath)
+	assert.Nil(t, err)
+	outputStr := string(output)
+
+	assert.Contains(t, outputStr, expectedHostVar, "Should inherit host environment variables")
+	assert.Contains(t, outputStr, expectedTaskVar, "Should include task-specific environment variables")
 }
