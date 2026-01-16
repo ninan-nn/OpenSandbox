@@ -12,25 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package controller
+package strategy
 
-import "github.com/gin-gonic/gin"
+import (
+	sandboxv1alpha1 "github.com/alibaba/OpenSandbox/sandbox-k8s/api/v1alpha1"
+)
 
-// MainController handles basic server operations.
-type MainController struct {
-	*basicController
-}
-
-func NewMainController(ctx *gin.Context) *MainController {
-	return &MainController{basicController: newBasicController(ctx)}
-}
-
-// Ping checks if the server is alive.
-func (c *MainController) Ping() {
-	c.RespondSuccess(nil)
-}
-
-// PingHandler is the Gin adapter.
-func PingHandler(ctx *gin.Context) {
-	NewMainController(ctx).Ping()
+type PoolStrategy interface {
+	IsPooledMode(batchSbx *sandboxv1alpha1.BatchSandbox) bool
 }
