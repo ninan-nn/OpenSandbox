@@ -250,7 +250,7 @@ export class ConnectionConfig {
   private _sseFetch: typeof fetch | null;
   readonly requestTimeoutSeconds: number;
   readonly debug: boolean;
-  readonly userAgent: string = "OpenSandbox-JS-SDK/0.1.0";
+  readonly userAgent: string = "OpenSandbox-JS-SDK/0.1.1";
   private _closeTransport: () => Promise<void>;
   private _closePromise: Promise<void> | null = null;
   private _transportInitialized = false;
@@ -296,7 +296,9 @@ export class ConnectionConfig {
     this.headers = headers;
     this._fetch = null;
     this._sseFetch = null;
-    this._closeTransport = async () => {};
+    this._closeTransport = async () => {
+      // Init with empty close call
+    };
     this._transportInitialized = false;
   }
 
