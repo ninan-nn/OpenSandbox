@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import createClient from "openapi-fetch";
 import type { Client } from "openapi-fetch";
 
 import type { paths as ExecdPaths } from "../api/execd.js";
+import { createClient } from "./createClient.js";
 
 export type ExecdClient = Client<ExecdPaths>;
 
