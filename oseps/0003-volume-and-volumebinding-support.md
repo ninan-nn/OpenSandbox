@@ -70,15 +70,15 @@ OpenSandbox users running long-lived agents need artifacts (web pages, images, r
 ## Proposal
 
 Add a new optional field to the Lifecycle API:
-- `volumes[]`: defines storage mounts for the sandbox. Each entry includes a named backend-specific struct (e.g., `local`, `oss`, `nfs`) and common mount settings (`name`, `mountPath`, `accessMode`, `subPath`).
+- `volumes[]`: defines storage mounts for the sandbox. Each entry includes a named backend-specific struct (e.g., `host`, `ossfs`, `pvc`, `nfs`) and common mount settings (`name`, `mountPath`, `accessMode`, `subPath`).
 
 The core API describes what storage is required using strongly-typed backend definitions. Each backend type has its own dedicated struct with explicit fields, making the schema self-documenting and enabling compile-time validation in typed SDKs. Runtime providers translate the model into platform-specific mounts.
 
 ### Notes/Constraints/Caveats
 
-- Sandbox runtime (Docker/Kubernetes) and storage backend (local/OSS/S3) are independent dimensions. The API is designed so the same SDK request can target different runtimes; if a runtime cannot support a backend, it must return a clear validation error.
+- Sandbox runtime (Docker/Kubernetes) and storage backend (host/ossfs/pvc) are independent dimensions. The API is designed so the same SDK request can target different runtimes; if a runtime cannot support a backend, it must return a clear validation error.
 - OSS/S3/GitFS are popular production backends; this proposal keeps the model extensible so these can be supported early by adding new backend structs.
-- The MVP targets Docker with `local` and `oss` backends, and Kubernetes with `local`, `oss`, and `pvc` backends. Other backends (e.g., `nfs`) are described for future extension and may be unsupported initially.
+- The MVP targets Docker with `host` and `ossfs` backends, and Kubernetes with `host`, `ossfs`, and `pvc` backends. Other backends (e.g., `nfs`) are described for future extension and may be unsupported initially.
 - Kubernetes template merging currently replaces lists; this proposal requires list-merge or append behavior for volumes/volumeMounts to preserve user input.
 - Exactly one backend struct must be specified per volume entry; specifying zero or multiple backend structs is a validation error.
 
@@ -95,22 +95,23 @@ Add to `CreateSandboxRequest`:
 
 ```yaml
 volumes:
-  # Local host path mount
+  # Host path mount
   - name: workdir
-    local:
-      hostPath: "/data/opensandbox/user-a"
+    host:
+      path: "/data/opensandbox/user-a"
     mountPath: /mnt/work
     accessMode: RW
     subPath: "task-001"
 
-  # OSS mount
+  # OSSFS mount
   - name: data
-    oss:
+    ossfs:
       bucket: "my-bucket"
       endpoint: "oss-cn-hangzhou.aliyuncs.com"
       path: "/sandbox/user-a"
       accessKeyId: "AKIDEXAMPLE"
       accessKeySecret: "SECRETEXAMPLE"
+      version: "2.0"
     mountPath: /mnt/data
     accessMode: RW
 
@@ -126,6 +127,7 @@ volumes:
     nfs:
       server: "nfs.example.com"
       path: "/exports/sandbox"
+      options: "nfsvers=4.1,hard,timeo=600"
     mountPath: /mnt/shared
     accessMode: RO
 ```
@@ -133,7 +135,7 @@ volumes:
 ### Core semantics
 - `volumes[]` declares storage mounts. Each volume entry contains:
   - `name`: unique identifier for the volume within the sandbox.
-  - Exactly one backend struct (`local`, `oss`, `nfs`, etc.) with backend-specific typed fields.
+  - Exactly one backend struct (`host`, `ossfs`, `pvc`, `nfs`, etc.) with backend-specific typed fields.
   - `mountPath`: absolute path inside the container where the volume is mounted.
   - `accessMode`: `RW` (read/write) or `RO` (read-only).
   - `subPath` (optional): subdirectory under the backend path to mount.
@@ -145,12 +147,12 @@ Enumerations are fixed and validated by the API:
 ### Backend struct definitions
 Each backend type is defined as a distinct struct with explicit typed fields:
 
-**`local`** - Host path bind mount:
+**`host`** - Host path bind mount:
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `hostPath` | string | Yes | Absolute path on the host filesystem |
+| `path` | string | Yes | Absolute path on the host filesystem |
 
-**`oss`** - Alibaba Cloud OSS mount:
+**`ossfs`** - Alibaba Cloud OSS mount via ossfs:
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `bucket` | string | Yes | OSS bucket name |
@@ -158,6 +160,8 @@ Each backend type is defined as a distinct struct with explicit typed fields:
 | `path` | string | No | Path prefix within the bucket (default: `/`) |
 | `accessKeyId` | string | Yes* | Access key ID for authentication |
 | `accessKeySecret` | string | Yes* | Access key secret for authentication |
+| `version` | string | No | ossfs version: `1.0` or `2.0` (default: `1.0`) |
+| `options` | []string | No | Mount options list (e.g., `["allow_other", "umask=0022"]`) |
 
 *Future enhancement: support `credentialRef` for secret references instead of inline credentials.
 
@@ -171,14 +175,15 @@ Each backend type is defined as a distinct struct with explicit typed fields:
 |-------|------|----------|-------------|
 | `server` | string | Yes | NFS server hostname or IP |
 | `path` | string | Yes | Absolute export path on the NFS server |
+| `options` | string | No | Comma-separated mount options (e.g., `nfsvers=4.1,hard,timeo=600`) |
 
 Additional backends (e.g., `s3`) can be added by defining new structs following this pattern.
 
 ### Backend constraints
 Validation rules for each backend struct to reduce runtime-only failures:
 
-- **`local`**: `hostPath` must be an absolute path (e.g., `/data/opensandbox/user-a`). Reject relative paths and require normalization before validation.
-- **`oss`**: `bucket` must be a valid bucket name. `endpoint` must be a valid OSS endpoint. `accessKeyId` and `accessKeySecret` are required unless `credentialRef` is provided (future). The runtime performs the mount during sandbox creation.
+- **`host`**: `path` must be an absolute path (e.g., `/data/opensandbox/user-a`). Reject relative paths and require normalization before validation.
+- **`ossfs`**: `bucket` must be a valid bucket name. `endpoint` must be a valid OSS endpoint. `accessKeyId` and `accessKeySecret` are required unless `credentialRef` is provided (future). `version` must be `1.0` or `2.0`; if omitted, defaults to `1.0`. The runtime performs the mount during sandbox creation.
 - **`pvc`**: `claimName` must be a valid Kubernetes resource name. The PVC must exist in the same namespace as the sandbox pod; the runtime validates existence at scheduling time.
 - **`nfs`**: `server` must be a valid hostname or IP. `path` must be an absolute path (e.g., `/exports/sandbox`).
 
@@ -194,34 +199,34 @@ Volume permissions are a frequent source of runtime failures and must be explici
 SubPath provides path-level isolation, not concurrency control. If multiple sandboxes mount the same volume without distinct `subPath` values and use `accessMode=RW`, they may overwrite each other. OpenSandbox does not provide file-locking or coordination; users are responsible for handling concurrent access safely.
 
 ### Docker mapping
-- `local` backend maps to bind mounts. `local.hostPath + subPath` resolves to a concrete host directory.
+- `host` backend maps to bind mounts. `host.path + subPath` resolves to a concrete host directory.
 - The host config uses `mounts`/`binds` with `readOnly` derived from `accessMode`.
 - If the resolved host path does not exist, the request fails validation (do not auto-create host directories in MVP to avoid permission and security pitfalls).
-- Allowed host paths are restricted by a server-side allowlist; users must specify a `local.hostPath` under permitted prefixes. The allowlist is an operator-configured policy and should be documented for users of a given deployment.
-- `oss` backend requires the runtime to mount a filesystem (e.g., via ossfs) during sandbox creation using the struct fields. If the runtime does not support OSS mounting, the request is rejected.
+- Allowed host paths are restricted by a server-side allowlist; users must specify a `host.path` under permitted prefixes. The allowlist is an operator-configured policy and should be documented for users of a given deployment.
+- `ossfs` backend requires the runtime to mount OSS via ossfs during sandbox creation using the struct fields. If the runtime does not support ossfs mounting, the request is rejected.
 
 ### Kubernetes mapping
 - `pvc` backend maps to Kubernetes `persistentVolumeClaim` volume source: `pvc.claimName` → `volumes[].persistentVolumeClaim.claimName`.
 - `nfs` backend maps to Kubernetes `nfs` volume source: `nfs.server` → `volumes[].nfs.server`, `nfs.path` → `volumes[].nfs.path`.
 - `mountPath` maps to `volumeMounts.mountPath`.
 - `subPath` maps to `volumeMounts.subPath`.
-- `oss` backend maps to OSS CSI driver or equivalent runtime-specific mount configured with the struct fields.
-- `local` backend maps to `hostPath` volume source and is node-local. For persistence guarantees in multi-node clusters, users must pin scheduling (node affinity) or use LocalPersistentVolume; otherwise data can disappear if the pod is rescheduled.
+- `ossfs` backend maps to OSS CSI driver or equivalent runtime-specific mount configured with the struct fields.
+- `host` backend maps to `hostPath` volume source and is node-local. For persistence guarantees in multi-node clusters, users must pin scheduling (node affinity) or use LocalPersistentVolume; otherwise data can disappear if the pod is rescheduled.
 
-### Example: Local host path mount
-Create a sandbox that mounts a local host directory:
+### Example: Host path mount
+Create a sandbox that mounts a host directory:
 
 ```yaml
 volumes:
   - name: workdir
-    local:
-      hostPath: "/data/opensandbox/user-a"
+    host:
+      path: "/data/opensandbox/user-a"
     mountPath: /mnt/work
     accessMode: RW
     subPath: "task-001"
 ```
 
-Python SDK example (local):
+Python SDK example (host):
 
 ```python
 from opensandbox.api.lifecycle.client import AuthenticatedClient
@@ -230,7 +235,7 @@ from opensandbox.api.lifecycle.models.create_sandbox_request import CreateSandbo
 from opensandbox.api.lifecycle.models.image_spec import ImageSpec
 from opensandbox.api.lifecycle.models.resource_limits import ResourceLimits
 from opensandbox.api.lifecycle.models.volume import Volume
-from opensandbox.api.lifecycle.models.local_backend import LocalBackend
+from opensandbox.api.lifecycle.models.host_backend import HostBackend
 
 client = AuthenticatedClient(base_url="https://api.opensandbox.io", token="YOUR_API_KEY")
 
@@ -243,8 +248,8 @@ request = CreateSandboxRequest(
     volumes=[
         Volume(
             name="workdir",
-            local=LocalBackend(
-                host_path="/data/opensandbox/user-a",
+            host=HostBackend(
+                path="/data/opensandbox/user-a",
             ),
             mount_path="/mnt/work",
             access_mode="RW",
@@ -256,30 +261,34 @@ request = CreateSandboxRequest(
 post_sandboxes.sync(client=client, body=request)
 ```
 
-### Example: OSS mount (runtime-specific)
-Create a sandbox that mounts an OSS bucket prefix via runtime-provided filesystem mount (e.g., ossfs or CSI):
+### Example: OSSFS mount
+Create a sandbox that mounts an OSS bucket via ossfs:
 
 ```yaml
 volumes:
   - name: workdir
-    oss:
+    ossfs:
       bucket: "my-bucket"
       endpoint: "oss-cn-hangzhou.aliyuncs.com"
       path: "/sandbox/user-a"
       accessKeyId: "AKIDEXAMPLE"
       accessKeySecret: "SECRETEXAMPLE"
+      version: "2.0"
+      options:
+        - "allow_other"
+        - "umask=0022"
     mountPath: /mnt/work
     accessMode: RW
     subPath: "task-001"
 ```
 
 Runtime mapping (Docker):
-- host path: created by the runtime mount step under a configured mount root (e.g., `/mnt/oss/<bucket>/<path>`), then bind-mounted into the container
+- host path: created by ossfs mount under a configured mount root (e.g., `/mnt/ossfs/<bucket>/<path>`), then bind-mounted into the container
 - container path: `/mnt/work`
 - accessMode: `RW`
 
 ### Example: Python SDK (lifecycle client)
-Use the Python SDK lifecycle client to create a sandbox with an OSS volume mount (future typed model):
+Use the Python SDK lifecycle client to create a sandbox with an OSSFS volume mount (future typed model):
 
 ```python
 from opensandbox.api.lifecycle.client import AuthenticatedClient
@@ -288,7 +297,7 @@ from opensandbox.api.lifecycle.models.create_sandbox_request import CreateSandbo
 from opensandbox.api.lifecycle.models.image_spec import ImageSpec
 from opensandbox.api.lifecycle.models.resource_limits import ResourceLimits
 from opensandbox.api.lifecycle.models.volume import Volume
-from opensandbox.api.lifecycle.models.oss_backend import OSSBackend
+from opensandbox.api.lifecycle.models.ossfs_backend import OSSFSBackend
 
 client = AuthenticatedClient(base_url="https://api.opensandbox.io", token="YOUR_API_KEY")
 
@@ -301,12 +310,14 @@ request = CreateSandboxRequest(
     volumes=[
         Volume(
             name="workdir",
-            oss=OSSBackend(
+            ossfs=OSSFSBackend(
                 bucket="my-bucket",
                 endpoint="oss-cn-hangzhou.aliyuncs.com",
                 path="/sandbox/user-a",
                 access_key_id="AKIDEXAMPLE",
                 access_key_secret="SECRETEXAMPLE",
+                version="2.0",
+                options=["allow_other", "umask=0022"],
             ),
             mount_path="/mnt/work",
             access_mode="RW",
@@ -390,6 +401,7 @@ volumes:
     nfs:
       server: "nfs.example.com"
       path: "/exports/sandbox"
+      options: "nfsvers=4.1,hard,timeo=600"
     mountPath: /mnt/work
     accessMode: RW
     subPath: "task-001"
@@ -436,6 +448,7 @@ request = CreateSandboxRequest(
             nfs=NFSBackend(
                 server="nfs.example.com",
                 path="/exports/sandbox",
+                options="nfsvers=4.1,hard,timeo=600",
             ),
             mount_path="/mnt/work",
             access_mode="RW",
@@ -451,8 +464,8 @@ post_sandboxes.sync(client=client, body=request)
 - Reject unsupported backend types per runtime (e.g., `pvc` is only valid in Kubernetes).
 - Validate that exactly one backend struct is specified per volume entry.
 - Normalize and validate `subPath` against traversal; reject `..` and absolute path inputs.
-- Enforce allowlist prefixes for `local.hostPath` in Docker.
-- For `oss` backend, validate required fields (`bucket`, `endpoint`, `accessKeyId`, `accessKeySecret`) and reject missing credentials.
+- Enforce allowlist prefixes for `host.path` in Docker.
+- For `ossfs` backend, validate required fields (`bucket`, `endpoint`, `accessKeyId`, `accessKeySecret`) and reject missing credentials.
 - For `pvc` backend, validate `claimName` is a valid Kubernetes resource name.
 - For `nfs` backend, validate required fields (`server`, `path`).
 - `subPath` is created if missing under the resolved backend path; if creation fails due to permissions or policy, the request is rejected.
@@ -463,7 +476,7 @@ Host path allowlists are configured by the control plane (server/execd) and enfo
 ```toml
 [storage]
 allow_host_paths = ["/data/opensandbox", "/tmp/sandbox"]
-oss_mount_root = "/mnt/oss"
+ossfs_mount_root = "/mnt/ossfs"
 ```
 
 ## Test Plan
@@ -473,8 +486,8 @@ oss_mount_root = "/mnt/oss"
   - Reject volume entries with zero or multiple backend structs.
   - Validate required fields per backend type.
 - Provider unit tests:
-  - Docker `local`: bind mount generation, read-only enforcement, allowlist rejection.
-  - Docker `oss`: mount option validation, credential validation, mount failure handling.
+  - Docker `host`: bind mount generation, read-only enforcement, allowlist rejection.
+  - Docker `ossfs`: mount option validation, credential validation, version validation (`1.0`/`2.0`), mount failure handling.
   - Kubernetes `pvc`: PVC reference validation, volume mount generation.
 - Integration tests for sandbox creation with volumes in Docker and Kubernetes.
 - Negative tests for unsupported backends and invalid paths.
@@ -491,7 +504,7 @@ oss_mount_root = "/mnt/oss"
 
 ## Infrastructure Needed
 
-The runtime must have the ability to perform filesystem mounts for the requested backend types (e.g., ossfs for `oss` backend). For `oss` backend, the MVP assumes the runtime can mount using the struct fields provided in the request; `credentialRef` for secret references is a future enhancement.
+The runtime must have the ability to perform filesystem mounts for the requested backend types. For `ossfs` backend, the runtime must have ossfs 1.0 or 2.0 installed; the MVP assumes the runtime can mount using the struct fields provided in the request. `credentialRef` for secret references is a future enhancement.
 
 ## Upgrade & Migration Strategy
 
