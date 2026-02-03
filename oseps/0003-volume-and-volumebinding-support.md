@@ -1,10 +1,10 @@
 ---
 title: Volume Support
 authors:
-  - "yutian.taoyt"
+  - "@hittyt"
 creation-date: 2026-01-29
-last-updated: 2026-02-02
-status: implementable
+last-updated: 2026-02-03
+status: implementing
 ---
 
 # OSEP-0003: Volume Support

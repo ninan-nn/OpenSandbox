@@ -16,6 +16,7 @@
 
 """Contains all the data models used in inputs/outputs"""
 
+from .access_mode import AccessMode
 from .create_sandbox_request import CreateSandboxRequest
 from .create_sandbox_request_env import CreateSandboxRequestEnv
 from .create_sandbox_request_extensions import CreateSandboxRequestExtensions
@@ -24,6 +25,7 @@ from .create_sandbox_response import CreateSandboxResponse
 from .create_sandbox_response_metadata import CreateSandboxResponseMetadata
 from .endpoint import Endpoint
 from .error_response import ErrorResponse
+from .host_backend import HostBackend
 from .image_spec import ImageSpec
 from .image_spec_auth import ImageSpecAuth
 from .list_sandboxes_response import ListSandboxesResponse
@@ -32,14 +34,17 @@ from .network_policy_default_action import NetworkPolicyDefaultAction
 from .network_rule import NetworkRule
 from .network_rule_action import NetworkRuleAction
 from .pagination_info import PaginationInfo
+from .pvc_backend import PVCBackend
 from .renew_sandbox_expiration_request import RenewSandboxExpirationRequest
 from .renew_sandbox_expiration_response import RenewSandboxExpirationResponse
 from .resource_limits import ResourceLimits
 from .sandbox import Sandbox
 from .sandbox_metadata import SandboxMetadata
 from .sandbox_status import SandboxStatus
+from .volume import Volume
 
 __all__ = (
+    "AccessMode",
     "CreateSandboxRequest",
     "CreateSandboxRequestEnv",
     "CreateSandboxRequestExtensions",
@@ -48,6 +53,7 @@ __all__ = (
     "CreateSandboxResponseMetadata",
     "Endpoint",
     "ErrorResponse",
+    "HostBackend",
     "ImageSpec",
     "ImageSpecAuth",
     "ListSandboxesResponse",
@@ -56,10 +62,12 @@ __all__ = (
     "NetworkRule",
     "NetworkRuleAction",
     "PaginationInfo",
+    "PVCBackend",
     "RenewSandboxExpirationRequest",
     "RenewSandboxExpirationResponse",
     "ResourceLimits",
     "Sandbox",
     "SandboxMetadata",
     "SandboxStatus",
+    "Volume",
 )

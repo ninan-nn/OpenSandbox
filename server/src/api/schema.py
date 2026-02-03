@@ -20,9 +20,10 @@ for request/response validation and serialization.
 """
 
 from datetime import datetime
+from enum import Enum
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, Field, RootModel
+from pydantic import BaseModel, Field, RootModel, model_validator
 
 
 # ============================================================================
@@ -106,6 +107,114 @@ class NetworkPolicy(BaseModel):
 
 
 # ============================================================================
+# Volume Definitions
+# ============================================================================
+
+
+class AccessMode(str, Enum):
+    """
+    Volume access mode controlling read/write permissions.
+    """
+
+    RW = "RW"  # Read-write access
+    RO = "RO"  # Read-only access
+
+
+class HostBackend(BaseModel):
+    """
+    Host path bind mount backend.
+
+    Maps a directory on the host filesystem into the container.
+    Only available when the runtime supports host mounts.
+
+    Security note: Host paths are restricted by server-side allowlist.
+    Users must specify paths under permitted prefixes.
+    """
+
+    path: str = Field(
+        ...,
+        description="Absolute path on the host filesystem to mount. Must start with '/'.",
+        pattern=r"^/.*",
+    )
+
+
+class PVCBackend(BaseModel):
+    """
+    Kubernetes PersistentVolumeClaim mount backend.
+
+    References an existing PVC in the same namespace as the sandbox pod.
+    Only available in Kubernetes runtime.
+    """
+
+    claim_name: str = Field(
+        ...,
+        alias="claimName",
+        description="Name of the PersistentVolumeClaim in the same namespace.",
+        pattern=r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+        max_length=253,
+    )
+
+    class Config:
+        populate_by_name = True
+
+
+class Volume(BaseModel):
+    """
+    Storage mount definition for a sandbox.
+
+    Each volume entry contains:
+    - A unique name identifier
+    - Exactly one backend struct (host, pvc, etc.) with backend-specific fields
+    - Common mount settings (mountPath, accessMode, subPath)
+    """
+
+    name: str = Field(
+        ...,
+        description="Unique identifier for the volume within the sandbox.",
+        pattern=r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+        max_length=63,
+    )
+    host: Optional[HostBackend] = Field(
+        None,
+        description="Host path bind mount backend.",
+    )
+    pvc: Optional[PVCBackend] = Field(
+        None,
+        description="Kubernetes PersistentVolumeClaim mount backend.",
+    )
+    mount_path: str = Field(
+        ...,
+        alias="mountPath",
+        description="Absolute path inside the container where the volume is mounted.",
+        pattern=r"^/.*",
+    )
+    access_mode: AccessMode = Field(
+        ...,
+        alias="accessMode",
+        description="Volume access mode (RW or RO).",
+    )
+    sub_path: Optional[str] = Field(
+        None,
+        alias="subPath",
+        description="Optional subdirectory under the backend path to mount.",
+    )
+
+    class Config:
+        populate_by_name = True
+
+    @model_validator(mode="after")
+    def validate_exactly_one_backend(self) -> "Volume":
+        """Ensure exactly one backend type is specified."""
+        backends = [self.host, self.pvc]
+        specified = [b for b in backends if b is not None]
+        if len(specified) == 0:
+            raise ValueError("Exactly one backend (host, pvc) must be specified, but none was provided.")
+        if len(specified) > 1:
+            raise ValueError("Exactly one backend (host, pvc) must be specified, but multiple were provided.")
+        return self
+
+
+# ============================================================================
 # Sandbox Status
 # ============================================================================
 
@@ -175,6 +284,13 @@ class CreateSandboxRequest(BaseModel):
         description=(
             "Optional outbound network policy. Shape matches the egress sidecar /policy endpoint. "
             "Empty/omitted means allow-all until updated."
+        ),
+    )
+    volumes: Optional[List[Volume]] = Field(
+        None,
+        description=(
+            "Storage mounts for the sandbox. Each volume entry specifies a named backend-specific "
+            "storage source and common mount settings. Exactly one backend type must be specified per volume entry."
         ),
     )
     extensions: Optional[Dict[str, str]] = Field(

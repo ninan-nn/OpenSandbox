@@ -748,6 +748,15 @@ components:
             Shape matches the sidecar `/policy` endpoint. If omitted or empty,
             the sidecar starts in allow-all mode until updated.
 
+        volumes:
+          type: array
+          description: |
+            Storage mounts for the sandbox. Each volume entry specifies a named backend-specific
+            storage source and common mount settings. Exactly one backend type must be specified
+            per volume entry.
+          items:
+            $ref: '#/components/schemas/Volume'
+
         extensions:
           type: object
           additionalProperties:
@@ -865,3 +874,82 @@ components:
             IP/CIDR not yet supported in the egress MVP.
       required: [action, target]
       additionalProperties: false
+
+    Volume:
+      type: object
+      description: |
+        Storage mount definition for a sandbox. Each volume entry contains:
+        - A unique name identifier
+        - Exactly one backend struct (host, pvc, etc.) with backend-specific fields
+        - Common mount settings (mountPath, accessMode, subPath)
+      required: [name, mountPath, accessMode]
+      properties:
+        name:
+          type: string
+          description: |
+            Unique identifier for the volume within the sandbox.
+            Must be a valid DNS label (lowercase alphanumeric, hyphens allowed, max 63 chars).
+          pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+          maxLength: 63
+        host:
+          $ref: '#/components/schemas/HostBackend'
+        pvc:
+          $ref: '#/components/schemas/PVCBackend'
+        mountPath:
+          type: string
+          description: |
+            Absolute path inside the container where the volume is mounted.
+            Must start with '/'.
+          pattern: "^/.*"
+        accessMode:
+          $ref: '#/components/schemas/AccessMode'
+        subPath:
+          type: string
+          description: |
+            Optional subdirectory under the backend path to mount.
+            Must be a relative path without '..' components.
+      additionalProperties: false
+
+    HostBackend:
+      type: object
+      description: |
+        Host path bind mount backend. Maps a directory on the host filesystem
+        into the container. Only available when the runtime supports host mounts.
+
+        Security note: Host paths are restricted by server-side allowlist.
+        Users must specify paths under permitted prefixes.
+      required: [path]
+      properties:
+        path:
+          type: string
+          description: |
+            Absolute path on the host filesystem to mount.
+            Must start with '/' and be under an allowed prefix.
+          pattern: "^/.*"
+      additionalProperties: false
+
+    PVCBackend:
+      type: object
+      description: |
+        Kubernetes PersistentVolumeClaim mount backend. References an existing
+        PVC in the same namespace as the sandbox pod.
+
+        Only available in Kubernetes runtime.
+      required: [claimName]
+      properties:
+        claimName:
+          type: string
+          description: |
+            Name of the PersistentVolumeClaim in the same namespace.
+            Must be a valid Kubernetes resource name.
+          pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+          maxLength: 253
+      additionalProperties: false
+
+    AccessMode:
+      type: string
+      description: |
+        Volume access mode controlling read/write permissions.
+        - RW: Read-write access
+        - RO: Read-only access
+      enum: [RW, RO]
