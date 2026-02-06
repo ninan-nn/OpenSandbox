@@ -47,7 +47,20 @@ mkdir -p /tmp/opensandbox-data/datasets/train
 echo -e "id,value\n1,100\n2,200\n3,300" > /tmp/opensandbox-data/datasets/train/data.csv
 ```
 
-### 4. Pull the Sandbox Image
+### 4. Install SDK from Source
+
+Volume support requires the latest SDK built from source (not yet available in the released package):
+
+```shell
+# From the project root (recommended: use uv)
+uv pip install -e sdks/sandbox/python
+
+# Or use pip inside a virtual environment
+# python3 -m venv .venv && source .venv/bin/activate
+# pip install -e sdks/sandbox/python
+```
+
+### 5. Pull the Sandbox Image
 
 ```shell
 docker pull ubuntu:latest
@@ -56,15 +69,7 @@ docker pull ubuntu:latest
 ## Run
 
 ```shell
-# Using default settings (auto-creates a temp directory if HOST_VOLUME_PATH is unset)
-uv run python examples/host-volume-mount/main.py
-
-# With explicit host path
 HOST_VOLUME_PATH=/tmp/opensandbox-data uv run python examples/host-volume-mount/main.py
-
-# With custom server/image
-SANDBOX_DOMAIN=localhost:8080 SANDBOX_IMAGE=ubuntu HOST_VOLUME_PATH=/tmp/opensandbox-data \
-  uv run python examples/host-volume-mount/main.py
 ```
 
 ## Expected Output

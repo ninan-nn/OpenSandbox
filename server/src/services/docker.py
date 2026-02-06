@@ -70,7 +70,7 @@ from src.services.helpers import (
     parse_timestamp,
 )
 from src.services.sandbox_service import SandboxService
-from src.services.validators import ensure_entrypoint, ensure_future_expiration, ensure_metadata_labels, ensure_volumes_valid
+from src.services.validators import ensure_entrypoint, ensure_future_expiration, ensure_metadata_labels, ensure_valid_host_path, ensure_volumes_valid
 
 logger = logging.getLogger(__name__)
 
@@ -899,9 +899,7 @@ class DockerSandboxService(SandboxService):
 
         Performs comprehensive validation:
         - Calls shared volume validation (name, mount path, sub path, backend count)
-        - Rejects unsupported backends for Docker (e.g., PVC)
-        - Validates host paths against allowlist
-        - Verifies that resolved host paths exist on the filesystem
+        - Delegates to backend-specific validators for Docker-level checks
 
         Args:
             request: Sandbox creation request.
@@ -917,36 +915,74 @@ class DockerSandboxService(SandboxService):
         ensure_volumes_valid(request.volumes, allowed_host_prefixes=allowed_prefixes)
 
         for volume in request.volumes:
-            # Docker does not support PVC backend
-            if volume.pvc is not None:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail={
-                        "code": SandboxErrorCodes.UNSUPPORTED_VOLUME_BACKEND,
-                        "message": (
-                            f"Volume '{volume.name}' uses 'pvc' backend which is not supported "
-                            "in Docker runtime. PVC is only available in Kubernetes runtime."
-                        ),
-                    },
-                )
-
-            # Validate host path existence on the filesystem
             if volume.host is not None:
-                resolved_path = volume.host.path
-                if volume.sub_path:
-                    resolved_path = os.path.join(resolved_path, volume.sub_path)
+                self._validate_host_volume(volume, allowed_prefixes)
+            elif volume.pvc is not None:
+                self._validate_pvc_volume(volume)
 
-                if not os.path.exists(resolved_path):
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail={
-                            "code": SandboxErrorCodes.HOST_PATH_NOT_FOUND,
-                            "message": (
-                                f"Volume '{volume.name}': resolved host path '{resolved_path}' "
-                                "does not exist. Host paths must exist before sandbox creation."
-                            ),
-                        },
-                    )
+    @staticmethod
+    def _validate_host_volume(volume, allowed_prefixes: Optional[list[str]]) -> None:
+        """
+        Docker-specific validation for host bind mount volumes.
+
+        Validates that the resolved host path (host.path + optional subPath)
+        exists on the filesystem and remains within allowed prefixes.
+
+        Args:
+            volume: Volume with host backend.
+            allowed_prefixes: Optional allowlist of host path prefixes.
+
+        Raises:
+            HTTPException: When the resolved path is invalid or missing.
+        """
+        resolved_path = volume.host.path
+        if volume.sub_path:
+            resolved_path = os.path.normpath(
+                os.path.join(resolved_path, volume.sub_path)
+            )
+
+        # Defense in depth: re-validate the resolved path against the
+        # allowlist.  Even though sub_path traversal (../) is blocked by
+        # ensure_valid_sub_path(), normalizing and re-checking prevents
+        # any edge-case bypass.
+        if allowed_prefixes and resolved_path != volume.host.path:
+            ensure_valid_host_path(resolved_path, allowed_prefixes)
+
+        if not os.path.exists(resolved_path):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": SandboxErrorCodes.HOST_PATH_NOT_FOUND,
+                    "message": (
+                        f"Volume '{volume.name}': resolved host path '{resolved_path}' "
+                        "does not exist. Host paths must exist before sandbox creation."
+                    ),
+                },
+            )
+
+    @staticmethod
+    def _validate_pvc_volume(volume) -> None:
+        """
+        Docker-specific validation for PVC volumes — always rejected.
+
+        PVC is only available in Kubernetes runtime.
+
+        Args:
+            volume: Volume with pvc backend.
+
+        Raises:
+            HTTPException: Always, since Docker does not support PVC.
+        """
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": SandboxErrorCodes.UNSUPPORTED_VOLUME_BACKEND,
+                "message": (
+                    f"Volume '{volume.name}' uses 'pvc' backend which is not supported "
+                    "in Docker runtime. PVC is only available in Kubernetes runtime."
+                ),
+            },
+        )
 
     @staticmethod
     def _build_volume_binds(volumes: Optional[list]) -> list[str]:
@@ -976,7 +1012,9 @@ class DockerSandboxService(SandboxService):
             # Resolve the concrete host path (host.path + optional subPath)
             host_path = volume.host.path
             if volume.sub_path:
-                host_path = os.path.join(host_path, volume.sub_path)
+                host_path = os.path.normpath(
+                    os.path.join(host_path, volume.sub_path)
+                )
 
             container_path = volume.mount_path
             mode = "ro" if volume.read_only else "rw"

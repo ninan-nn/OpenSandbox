@@ -17,7 +17,7 @@
 ```shell
 git clone git@github.com:alibaba/OpenSandbox.git
 cd OpenSandbox/server
-cp example.config.toml ~/.sandbox.toml
+cp example.config.zh.toml ~/.sandbox.toml
 uv sync && uv run python -m src.main
 ```
 
@@ -47,24 +47,30 @@ mkdir -p /tmp/opensandbox-data/datasets/train
 echo -e "id,value\n1,100\n2,200\n3,300" > /tmp/opensandbox-data/datasets/train/data.csv
 ```
 
-### 4. 拉取沙箱镜像
+### 4. 从源码安装 SDK
+
+Volume 功能需要从源码安装最新版 SDK：
 
 ```shell
-docker pull ubuntu:latest
+# 在项目根目录下执行（推荐使用 uv）
+uv pip install -e sdks/sandbox/python
+
+# 或者使用 pip（需要在虚拟环境中执行）
+# python3 -m venv .venv && source .venv/bin/activate
+# pip install -e sdks/sandbox/python
+```
+
+### 5. 拉取沙箱镜像
+
+```shell
+docker pull registry.cn-hangzhou.aliyuncs.com/acs/ubuntu:latest
 ```
 
 ## 运行
 
 ```shell
-# 使用默认配置（未设置 HOST_VOLUME_PATH 时会自动创建临时目录）
-uv run python examples/host-volume-mount/main.py
-
-# 指定宿主机路径
-HOST_VOLUME_PATH=/tmp/opensandbox-data uv run python examples/host-volume-mount/main.py
-
-# 自定义服务地址和镜像
-SANDBOX_DOMAIN=localhost:8080 SANDBOX_IMAGE=ubuntu HOST_VOLUME_PATH=/tmp/opensandbox-data \
-  uv run python examples/host-volume-mount/main.py
+SANDBOX_IMAGE=registry.cn-hangzhou.aliyuncs.com/acs/ubuntu:latest \
+  HOST_VOLUME_PATH=/tmp/opensandbox-data uv run python examples/host-volume-mount/main.py
 ```
 
 ## 预期输出
@@ -73,7 +79,7 @@ SANDBOX_DOMAIN=localhost:8080 SANDBOX_IMAGE=ubuntu HOST_VOLUME_PATH=/tmp/opensan
 Using HOST_VOLUME_PATH: /tmp/opensandbox-data
 
 OpenSandbox server : localhost:8080
-Sandbox image      : ubuntu
+Sandbox image      : registry.cn-hangzhou.aliyuncs.com/acs/ubuntu:latest
 Host volume path   : /tmp/opensandbox-data
 
 ============================================================
@@ -83,11 +89,11 @@ Scenario 1: Read-Write Host Volume Mount
   Mount path: /mnt/shared
 
   [1] Listing files visible from inside the sandbox:
-  total 12
-  drwxrwxrwx 3 root root 4096 ... .
-  drwxr-xr-x 1 root root 4096 ... ..
-  -rw-r--r-- 1 root root   16 ... marker.txt
-  drwxr-xr-x 3 root root 4096 ... datasets
+  total 4
+drwxr-xr-x 1 root root 128 Feb  6 09:24 .
+drwxr-xr-x 1 root root  12 Feb  6 11:50 ..
+drwxr-xr-x 1 root root  96 Feb  6 09:24 datasets
+-rw-r--r-- 1 root root  16 Feb  6 09:24 marker.txt
 
   [2] Writing a file from inside the sandbox:
   -> Written: /mnt/shared/sandbox-greeting.txt
@@ -107,12 +113,18 @@ Scenario 2: Read-Only Host Volume Mount
   Mount path: /mnt/readonly
 
   [1] Reading files from read-only mount:
-  ...
+  total 8
+drwxr-xr-x 1 root root 160 Feb  6 11:50 .
+drwxr-xr-x 1 root root  16 Feb  6 11:50 ..
+drwxr-xr-x 1 root root  96 Feb  6 09:24 datasets
+-rw-r--r-- 1 root root  16 Feb  6 09:24 marker.txt
+-rw-r--r-- 1 root root  20 Feb  6 11:50 sandbox-greeting.txt
 
   [2] Reading marker.txt:
   hello-from-host
 
   [3] Attempting to write (should fail):
+  touch: cannot touch '/mnt/readonly/should-fail.txt': Read-only file system
   Write denied (expected)
 
   Scenario 2 completed.
@@ -125,14 +137,16 @@ Scenario 3: SubPath Host Volume Mount
   Mount path: /mnt/training-data
 
   [1] Listing mounted subpath content:
-  ...
-  -rw-r--r-- 1 root root   28 ... data.csv
+  total 4
+drwxr-xr-x 1 root root 96 Feb  6 09:24 .
+drwxr-xr-x 1 root root 26 Feb  6 11:50 ..
+-rw-r--r-- 1 root root 27 Feb  6 11:50 data.csv
 
   [2] Reading data.csv:
   id,value
-  1,100
-  2,200
-  3,300
+1,100
+2,200
+3,300
 
   Scenario 3 completed.
 
@@ -219,4 +233,4 @@ Sandbox sandbox = Sandbox.builder()
 
 - [OSEP-0003: Volume 与 VolumeBinding 支持](../../oseps/0003-volume-and-volumebinding-support.md) — 设计提案
 - [Sandbox Lifecycle API 规范](../../specs/sandbox-lifecycle.yml) — Volume 定义的 OpenAPI 规范
-- [服务端配置示例](../../server/example.config.toml) — `[storage]` 段中的 `allowed_host_paths` 配置
+- [服务端配置示例](../../server/example.config.zh.toml) — `[storage]` 段中的 `allowed_host_paths` 配置

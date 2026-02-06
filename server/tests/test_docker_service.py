@@ -755,7 +755,6 @@ class TestDockerVolumeValidation:
         service = DockerSandboxService(config=_app_config())
 
         import tempfile
-        import os
 
         with tempfile.TemporaryDirectory() as tmpdir:
             request = CreateSandboxRequest(

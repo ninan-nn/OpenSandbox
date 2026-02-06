@@ -291,7 +291,7 @@ step "Create sandbox with host volume mount"
 # Prepare the host volume test directory
 mkdir -p /tmp/opensandbox-e2e/host-volume-test
 echo "opensandbox-e2e-marker" > /tmp/opensandbox-e2e/host-volume-test/marker.txt
-chmod -R 777 /tmp/opensandbox-e2e
+chmod -R 755 /tmp/opensandbox-e2e
 
 volume_payload='{
   "image": { "uri": "ubuntu" },
@@ -339,6 +339,44 @@ PY
   step "Wait for volume sandbox to reach Running"
   wait_for_running >/dev/null
   SANDBOX_ID="${OLD_SANDBOX_ID}"
+
+  # --- Verify the bind mount is actually effective ---
+  # Resolve the Docker container ID from the sandbox API response.
+  container_id=$(curl_json "${BASE_API_URL}/sandboxes/${VOLUME_SANDBOX_ID}" \
+    | python - <<'PY'
+import json,sys
+body=json.loads(sys.stdin.read())
+print(body.get("containerId", body.get("container_id", "")), end="")
+PY
+  )
+  # Fallback: if the API doesn't expose container_id, search by label.
+  if [[ -z "${container_id}" ]]; then
+    container_id=$(docker ps -qf "label=sandbox_id=${VOLUME_SANDBOX_ID}" | head -1)
+  fi
+
+  if [[ -n "${container_id}" ]]; then
+    step "Verify host volume bind mount content inside container"
+    # 1. Read the marker file written on the host
+    marker_content=$(docker exec "${container_id}" cat /mnt/host-data/marker.txt 2>&1) || true
+    if [[ "${marker_content}" == "opensandbox-e2e-marker" ]]; then
+      info "PASS: marker.txt content matches expected value."
+    else
+      error "FAIL: marker.txt content='${marker_content}', expected='opensandbox-e2e-marker'"
+      exit 1
+    fi
+
+    # 2. Write a file from inside the container and verify it on the host
+    docker exec "${container_id}" sh -c 'echo "written-from-sandbox" > /mnt/host-data/sandbox-output.txt'
+    host_content=$(cat /tmp/opensandbox-e2e/host-volume-test/sandbox-output.txt 2>&1) || true
+    if [[ "${host_content}" == "written-from-sandbox" ]]; then
+      info "PASS: file written inside container is visible on host."
+    else
+      error "FAIL: sandbox-output.txt on host='${host_content}', expected='written-from-sandbox'"
+      exit 1
+    fi
+  else
+    warn "Skip bind-mount verification: could not resolve container ID for sandbox ${VOLUME_SANDBOX_ID}."
+  fi
 
   step "Delete volume sandbox"
   curl_json -X DELETE "${BASE_API_URL}/sandboxes/${VOLUME_SANDBOX_ID}"

@@ -41,7 +41,20 @@ from pathlib import Path
 
 from opensandbox import Sandbox
 from opensandbox.config import ConnectionConfig
-from opensandbox.models.sandboxes import Host, Volume
+
+try:
+    from opensandbox.models.sandboxes import Host, Volume
+except ImportError:
+    print(
+        "ERROR: Your installed opensandbox SDK does not include Volume/Host models.\n"
+        "       Volume support requires the latest SDK from source.\n"
+        "       Please install from the local repository:\n"
+        "\n"
+        "           pip install -e sdks/sandbox/python\n"
+        "\n"
+        "       See README.md for details."
+    )
+    raise SystemExit(1)
 
 
 async def print_exec(sandbox: Sandbox, command: str) -> str | None:
