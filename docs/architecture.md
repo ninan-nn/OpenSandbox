@@ -1,5 +1,7 @@
 # OpenSandbox Architecture
 
+> 已整理为更易读的版本，请优先阅读 `guide/architecture`。
+
 OpenSandbox is a universal sandbox platform designed for AI application scenarios, providing a complete solution with multi-language SDKs, standardized sandbox protocols, and flexible runtime implementations. This document describes the overall architecture and design philosophy of OpenSandbox.
 
 ## Architecture Overview
@@ -460,7 +462,7 @@ AI models (like Claude, GPT-4, Gemini) generate code that needs to be executed s
 - **Iteration**: Maintain state across multiple code generations
 - **Feedback**: Capture execution results and errors for AI refinement
 
-**Examples**: [claude-code](../examples/claude-code/), [gemini-cli](../examples/gemini-cli/), [codex-cli](../examples/codex-cli/)
+**Examples**: [claude-code](https://github.com/alibaba/OpenSandbox/tree/main/examples/claude-code), [gemini-cli](https://github.com/alibaba/OpenSandbox/tree/main/examples/gemini-cli), [codex-cli](https://github.com/alibaba/OpenSandbox/tree/main/examples/codex-cli)
 
 ### 7.2 Interactive Coding Environments
 
@@ -471,7 +473,7 @@ Build web-based coding platforms and notebooks:
 - **Terminal Access**: Execute shell commands
 - **Collaboration**: Share sandbox instances
 
-**Examples**: [code-interpreter](../examples/code-interpreter/)
+**Examples**: [code-interpreter](https://github.com/alibaba/OpenSandbox/tree/main/examples/code-interpreter)
 
 ### 7.3 Browser Automation and Testing
 
@@ -482,7 +484,7 @@ Automate web browsers for testing and scraping:
 - **VNC Access**: Visual debugging
 - **Network Isolation**: Controlled environment
 
-**Examples**: [chrome](../examples/chrome/), [playwright](../examples/playwright/)
+**Examples**: [chrome](https://github.com/alibaba/OpenSandbox/tree/main/examples/chrome), [playwright](https://github.com/alibaba/OpenSandbox/tree/main/examples/playwright)
 
 ### 7.4 Remote Development Environments
 
@@ -493,7 +495,7 @@ Provide cloud-based development workspaces:
 - **Tool Pre-installation**: Language runtimes, build tools
 - **Port Forwarding**: Access development servers
 
-**Examples**: [vscode](../examples/vscode/), [desktop](../examples/desktop/)
+**Examples**: [vscode](https://github.com/alibaba/OpenSandbox/tree/main/examples/vscode), [desktop](https://github.com/alibaba/OpenSandbox/tree/main/examples/desktop)
 
 ### 7.5 Continuous Integration and Testing
 
@@ -519,10 +521,10 @@ The protocol-first design ensures that all components can evolve independently w
 ## 9. References
 
 - [Contributing Guide](contributing.md)
-- [Sandbox Lifecycle Spec](../specs/sandbox-lifecycle.yml)
-- [Sandbox Execution Spec](../specs/execd-api.yaml)
-- [Server Documentation](../server/README.md)
-- [execd Documentation](../components/execd/README.md)
-- [Python SDK](../sdks/sandbox/python/README.md)
-- [Java/Kotlin SDK](../sdks/sandbox/kotlin/README.md)
-- [Examples](../examples/README.md)
+- [Sandbox Lifecycle Spec](https://github.com/alibaba/OpenSandbox/blob/main/specs/sandbox-lifecycle.yml)
+- [Sandbox Execution Spec](https://github.com/alibaba/OpenSandbox/blob/main/specs/execd-api.yaml)
+- [Server Documentation](https://github.com/alibaba/OpenSandbox/blob/main/server/README.md)
+- [execd Documentation](https://github.com/alibaba/OpenSandbox/blob/main/components/execd/README.md)
+- [Python SDK](https://github.com/alibaba/OpenSandbox/blob/main/sdks/sandbox/python/README.md)
+- [Java/Kotlin SDK](https://github.com/alibaba/OpenSandbox/blob/main/sdks/sandbox/kotlin/README.md)
+- [Examples](https://github.com/alibaba/OpenSandbox/blob/main/examples/README.md)
