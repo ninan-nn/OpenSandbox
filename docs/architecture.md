@@ -1,5 +1,7 @@
 # OpenSandbox Architecture
 
+> 已整理为更易读的版本，请优先阅读 `guide/architecture`。
+
 OpenSandbox is a universal sandbox platform designed for AI application scenarios, providing a complete solution with multi-language SDKs, standardized sandbox protocols, and flexible runtime implementations. This document describes the overall architecture and design philosophy of OpenSandbox.
 
 ## Architecture Overview
