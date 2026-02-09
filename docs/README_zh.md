@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/logo.svg" alt="OpenSandbox logo" width="150" />
+  <img src="/assets/logo.svg" alt="OpenSandbox logo" width="150" />
 
   <h1>OpenSandbox</h1>
 
@@ -11,7 +11,7 @@
   <hr />
 </div>
 
-中文 | [English](../README.md)
+中文 | [English](/en/)
 
 OpenSandbox 是一个面向 AI 应用场景设计的「通用沙箱平台」，为LLM相关的能力（命令执行、文件操作、代码执行、浏览器操作、Agent 运行等）提供 **多语言 SDK、沙箱接口协议和沙箱运行时**。
 
@@ -19,9 +19,9 @@ OpenSandbox 是一个面向 AI 应用场景设计的「通用沙箱平台」，�
 
 - **多语言 SDK**：提供 Python、Java/Kotlin、JavaScript/TypeScript 等语言的客户端 SDK。
 - **沙箱协议**：定义了沙箱生命周期管理 API 和沙箱执行 API。你可以通过这些沙箱协议扩展自己的沙箱运行时。
-- **沙箱运行时**：沙箱全生命周期管理，支持 Docker 和[自研高性能 Kubernetes 运行时](../kubernetes)，实现本地运行、企业级大规模分布式沙箱调度。
+- **沙箱运行时**：沙箱全生命周期管理，支持 Docker 和[自研高性能 Kubernetes 运行时](https://github.com/alibaba/OpenSandbox/tree/main/kubernetes)，实现本地运行、企业级大规模分布式沙箱调度。
 - **沙箱环境**：内置 Command、Filesystem、Code Interpreter 实现。并提供 Coding Agent（Claude Code 等）、浏览器自动化（Chrome、Playwright）和桌面环境（VNC、VS Code）等示例。
-- **网络策略**：提供统一的 [Ingress Gateway](../components/ingress) 实现，并支持多种路由策略；提供单实例级别的沙箱[出口网络限制](../components/egress)。
+- **网络策略**：提供统一的 [Ingress Gateway](https://github.com/alibaba/OpenSandbox/tree/main/components/ingress) 实现，并支持多种路由策略；提供单实例级别的沙箱[出口网络限制](https://github.com/alibaba/OpenSandbox/tree/main/components/egress)。
 
 ## 使用示例
 
@@ -129,66 +129,66 @@ OpenSandbox 提供了丰富的示例来演示不同场景下的沙箱使用方�
 
 #### 🎯 基础示例
 
-- **[code-interpreter](../examples/code-interpreter/README.md)** - Code Interpreter SDK 的端到端沙箱流程示例。
-- **[aio-sandbox](../examples/aio-sandbox/README.md)** - 使用 OpenSandbox SDK 与 agent-sandbox 的一体化沙箱示例。
-- **[agent-sandbox](../examples/agent-sandbox/README.md)** - 通过 kubernetes-sigs/agent-sandbox 在 Kubernetes 上运行 OpenSandbox。
+- **[code-interpreter](https://github.com/alibaba/OpenSandbox/blob/main/examples/code-interpreter/README.md)** - Code Interpreter SDK 的端到端沙箱流程示例。
+- **[aio-sandbox](https://github.com/alibaba/OpenSandbox/blob/main/examples/aio-sandbox/README.md)** - 使用 OpenSandbox SDK 与 agent-sandbox 的一体化沙箱示例。
+- **[agent-sandbox](https://github.com/alibaba/OpenSandbox/blob/main/examples/agent-sandbox/README.md)** - 通过 kubernetes-sigs/agent-sandbox 在 Kubernetes 上运行 OpenSandbox。
 
 #### 🤖 Coding Agent 集成
 
 在 OpenSandbox 中，集成各类 Coding Agent，包括 Claude Code、Google Gemini、OpenAI Codex 等。
 
-- **[claude-code](../examples/claude-code/README.md)** - 在 OpenSandbox 中运行 Claude Code。
-- **[gemini-cli](../examples/gemini-cli/README.md)** - 在 OpenSandbox 中运行 Google Gemini CLI。
-- **[codex-cli](../examples/codex-cli/README.md)** - 在 OpenSandbox 中运行 OpenAI Codex CLI。
-- **[iflow-cli](../examples/iflow-cli/README.md)** - 在 OpenSandbox 中运行 iFlow CLI。
-- **[langgraph](../examples/langgraph/README.md)** - 基于 LangGraph 状态机编排沙箱任务与回退重试。
-- **[google-adk](../examples/google-adk/README.md)** - 使用 Google ADK 通过 OpenSandbox 工具读写文件并执行命令。
+- **[claude-code](https://github.com/alibaba/OpenSandbox/blob/main/examples/claude-code/README.md)** - 在 OpenSandbox 中运行 Claude Code。
+- **[gemini-cli](https://github.com/alibaba/OpenSandbox/blob/main/examples/gemini-cli/README.md)** - 在 OpenSandbox 中运行 Google Gemini CLI。
+- **[codex-cli](https://github.com/alibaba/OpenSandbox/blob/main/examples/codex-cli/README.md)** - 在 OpenSandbox 中运行 OpenAI Codex CLI。
+- **[iflow-cli](https://github.com/alibaba/OpenSandbox/blob/main/examples/iflow-cli/README.md)** - 在 OpenSandbox 中运行 iFlow CLI。
+- **[langgraph](https://github.com/alibaba/OpenSandbox/blob/main/examples/langgraph/README.md)** - 基于 LangGraph 状态机编排沙箱任务与回退重试。
+- **[google-adk](https://github.com/alibaba/OpenSandbox/blob/main/examples/google-adk/README.md)** - 使用 Google ADK 通过 OpenSandbox 工具读写文件并执行命令。
 
 #### 🌐 浏览器与桌面环境
 
-- **[chrome](../examples/chrome/README.md)** - 带 VNC 与 DevTools 的无头 Chromium，用于自动化/调试。
-- **[playwright](../examples/playwright/README.md)** - Playwright + Chromium 无头抓取与测试示例。
-- **[desktop](../examples/desktop/README.md)** - 通过 VNC 访问的完整桌面环境沙箱。
-- **[vscode](../examples/vscode/README.md)** - 在沙箱中运行 code-server（VS Code Web）进行远程开发。
+- **[chrome](https://github.com/alibaba/OpenSandbox/blob/main/examples/chrome/README.md)** - 带 VNC 与 DevTools 的无头 Chromium，用于自动化/调试。
+- **[playwright](https://github.com/alibaba/OpenSandbox/blob/main/examples/playwright/README.md)** - Playwright + Chromium 无头抓取与测试示例。
+- **[desktop](https://github.com/alibaba/OpenSandbox/blob/main/examples/desktop/README.md)** - 通过 VNC 访问的完整桌面环境沙箱。
+- **[vscode](https://github.com/alibaba/OpenSandbox/blob/main/examples/vscode/README.md)** - 在沙箱中运行 code-server（VS Code Web）进行远程开发。
 
 #### 🧠 机器学习与训练
 
-- **[rl-training](../examples/rl-training/README.md)** - 在沙箱中运行 DQN CartPole 训练，输出 checkpoint 与训练汇总。
+- **[rl-training](https://github.com/alibaba/OpenSandbox/blob/main/examples/rl-training/README.md)** - 在沙箱中运行 DQN CartPole 训练，输出 checkpoint 与训练汇总。
 
-更多详细信息请参考 [examples](../examples/README.md) 和各示例目录下的 README 文件。
+更多详细信息请参考 [examples](https://github.com/alibaba/OpenSandbox/blob/main/examples/README.md) 和各示例目录下的 README 文件。
 
 ## 项目结构
 
 | 目录 | 说明                                                |
 |------|---------------------------------------------------|
-| [`sdks/`](../sdks/) | 多语言 SDK（Python、Java/Kotlin、TypeScript/JavaScript） |
-| [`specs/`](../specs/) | OpenAPI 与生命周期规范                                   |
-| [`server/`](../server/README_zh.md) | Python FastAPI 沙箱生命周期服务，并集成多种运行时实现                |
-| [`kubernetes/`](../kubernetes/README-ZH.md) | Kubernetes 部署与示例                                  |
-| [`components/execd/`](../components/execd/README_zh.md) | 沙箱执行守护进程，负责命令和文件操作                                |
-| [`components/ingress/`](../components/ingress/README.md) | 沙箱流量入口代理                                          |
-| [`components/egress/`](../components/egress/README.md) | 沙箱网络 Egress 访问控制                                  |
-| [`sandboxes/`](../sandboxes/) | 沙箱运行时实现与镜像（如 code-interpreter）                    |
-| [`examples/`](../examples/README.md) | 集成示例和使用案例                                         |
-| [`oseps/`](../oseps/README.md) | OpenSandbox Enhancement Proposals                 |
-| [`docs/`](../docs/) | 架构和设计文档                                           |
-| [`tests/`](../tests/) | 跨组件端到端测试                                          |
-| [`scripts/`](../scripts/) | 开发和维护脚本                                           |
+| [`sdks/`](https://github.com/alibaba/OpenSandbox/tree/main/sdks) | 多语言 SDK（Python、Java/Kotlin、TypeScript/JavaScript） |
+| [`specs/`](https://github.com/alibaba/OpenSandbox/tree/main/specs) | OpenAPI 与生命周期规范                                   |
+| [`server/`](https://github.com/alibaba/OpenSandbox/blob/main/server/README_zh.md) | Python FastAPI 沙箱生命周期服务，并集成多种运行时实现                |
+| [`kubernetes/`](https://github.com/alibaba/OpenSandbox/blob/main/kubernetes/README-ZH.md) | Kubernetes 部署与示例                                  |
+| [`components/execd/`](https://github.com/alibaba/OpenSandbox/blob/main/components/execd/README_zh.md) | 沙箱执行守护进程，负责命令和文件操作                                |
+| [`components/ingress/`](https://github.com/alibaba/OpenSandbox/blob/main/components/ingress/README.md) | 沙箱流量入口代理                                          |
+| [`components/egress/`](https://github.com/alibaba/OpenSandbox/blob/main/components/egress/README.md) | 沙箱网络 Egress 访问控制                                  |
+| [`sandboxes/`](https://github.com/alibaba/OpenSandbox/tree/main/sandboxes) | 沙箱运行时实现与镜像（如 code-interpreter）                    |
+| [`examples/`](https://github.com/alibaba/OpenSandbox/blob/main/examples/README.md) | 集成示例和使用案例                                         |
+| [`oseps/`](https://github.com/alibaba/OpenSandbox/blob/main/oseps/README.md) | OpenSandbox Enhancement Proposals                 |
+| [`docs/`](/) | 架构和设计文档                                           |
+| [`tests/`](https://github.com/alibaba/OpenSandbox/tree/main/tests) | 跨组件端到端测试                                          |
+| [`scripts/`](https://github.com/alibaba/OpenSandbox/tree/main/scripts) | 开发和维护脚本                                           |
 
-详细架构请参阅 [docs/architecture.md](architecture.md)。
+详细架构请参阅 [架构深度解析](/developers/architecture-deep-dive)。
 
 ## 文档
 
-- [docs/architecture.md](architecture.md) – 整体架构 & 设计理念
+- [架构深度解析](/developers/architecture-deep-dive) – 整体架构 & 设计理念
 - SDK
-  - Sandbox SDK（[Java\Kotlin SDK](../sdks/sandbox/kotlin/README_zh.md)、[Python SDK](../sdks/sandbox/python/README_zh.md)、[JavaScript/TypeScript SDK](../sdks/sandbox/javascript/README_zh.md)）- 包含沙箱生命周期、命令执行、文件操作
-  - Code Interpreter SDK（[Java\Kotlin SDK](../sdks/code-interpreter/kotlin/README_zh.md) 、[Python SDK](../sdks/code-interpreter/python/README_zh.md)、[JavaScript/TypeScript SDK](../sdks/code-interpreter/javascript/README_zh.md)）- 代码解释器
-- [specs/README.md](../specs/README_zh.md) - 包含沙箱生命周期 API 和沙箱执行 API 的 OpenAPI 定义
-- [server/README.md](../server/README_zh.md) - 包含沙箱 Server 的启动和配置，支持 Docker 与 Kubernetes Runtime
+  - Sandbox SDK（[Java\Kotlin SDK](https://github.com/alibaba/OpenSandbox/blob/main/sdks/sandbox/kotlin/README_zh.md)、[Python SDK](https://github.com/alibaba/OpenSandbox/blob/main/sdks/sandbox/python/README_zh.md)、[JavaScript/TypeScript SDK](https://github.com/alibaba/OpenSandbox/blob/main/sdks/sandbox/javascript/README_zh.md)）- 包含沙箱生命周期、命令执行、文件操作
+  - Code Interpreter SDK（[Java\Kotlin SDK](https://github.com/alibaba/OpenSandbox/blob/main/sdks/code-interpreter/kotlin/README_zh.md) 、[Python SDK](https://github.com/alibaba/OpenSandbox/blob/main/sdks/code-interpreter/python/README_zh.md)、[JavaScript/TypeScript SDK](https://github.com/alibaba/OpenSandbox/blob/main/sdks/code-interpreter/javascript/README_zh.md)）- 代码解释器
+- [specs/README.md](https://github.com/alibaba/OpenSandbox/blob/main/specs/README_zh.md) - 包含沙箱生命周期 API 和沙箱执行 API 的 OpenAPI 定义
+- [server/README.md](https://github.com/alibaba/OpenSandbox/blob/main/server/README_zh.md) - 包含沙箱 Server 的启动和配置，支持 Docker 与 Kubernetes Runtime
 
 ## 许可证
 
-本项目采用 [Apache 2.0 License](../LICENSE) 开源。
+本项目采用 [Apache 2.0 License](https://github.com/alibaba/OpenSandbox/blob/main/LICENSE) 开源。
 
 你可以在遵守许可条款的前提下，将 OpenSandbox 用于个人或商业项目。
 
@@ -200,7 +200,7 @@ OpenSandbox 提供了丰富的示例来演示不同场景下的沙箱使用方�
 
 ### Sandbox Runtime
 
-- [ ] **持久化存储** - 沙箱的持久化存储挂载，[Proposal 0003](../oseps/0003-volume-and-volumebinding-support.md)。
+- [ ] **持久化存储** - 沙箱的持久化存储挂载，[Proposal 0003](https://github.com/alibaba/OpenSandbox/blob/main/oseps/0003-volume-and-volumebinding-support.md)。
 - [ ] **Ingress 多网络策略的深度集成**：多 Kubernetes provision、多网络模式的 Ingress Gateway 集成。
 - [ ] **本地轻量级沙箱**：用于为运行在 PC 上的 AI 工具提供安全可靠的轻量级沙箱实现。
 

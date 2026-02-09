@@ -1,10 +1,14 @@
-# OpenSandbox Architecture
+---
+title: Architecture Deep Dive
+---
+
+# Architecture Deep Dive
 
 OpenSandbox is a universal sandbox platform designed for AI application scenarios, providing a complete solution with multi-language SDKs, standardized sandbox protocols, and flexible runtime implementations. This document describes the overall architecture and design philosophy of OpenSandbox.
 
 ## Architecture Overview
 
-![OpenSandbox Architecture](assets/architecture.svg)
+![OpenSandbox Architecture](../assets/architecture.svg)
 
 The OpenSandbox architecture consists of four main layers:
 
@@ -28,6 +32,7 @@ The `Sandbox` class is the primary entry point for managing sandbox lifecycle:
 - **Destroy**: Terminate sandbox instances when no longer needed
 
 **Key Features:**
+
 - Async/await support for non-blocking operations
 - Automatic state polling for provisioning progress
 - Resource quota management (CPU, memory, GPU)
@@ -45,6 +50,7 @@ The `Filesystem` component provides comprehensive file operations within sandbox
 - **Metadata**: Retrieve file info including size, timestamps, permissions
 
 **Use Cases:**
+
 - Uploading code files and dependencies
 - Downloading execution results and artifacts
 - Managing workspace directories
@@ -61,6 +67,7 @@ The `Commands` component enables shell command execution within sandboxes:
 - **Working Directory**: Specify custom working directory for command execution
 
 **Use Cases:**
+
 - Running build commands (e.g., `npm install`, `pip install`)
 - Executing system utilities (e.g., `git`, `docker`)
 - Starting web servers or services
@@ -77,12 +84,14 @@ The `CodeInterpreter` component provides stateful code execution across multiple
 - **Error Handling**: Structured error responses with tracebacks
 
 **Key Features:**
+
 - Variable persistence across executions within same session
 - Display data in multiple MIME types (text, HTML, images)
 - Execution interruption support
 - Execution timing and performance metrics
 
 **Use Cases:**
+
 - Interactive coding environments (e.g., Jupyter notebooks)
 - AI code generation and execution
 - Data analysis and visualization
@@ -110,16 +119,16 @@ The Lifecycle Spec defines the API for managing sandbox instances throughout the
 
 #### Core Operations
 
-| Operation | Endpoint | Description |
-|-----------|----------|-------------|
-| **Create** | `POST /sandboxes` | Create a new sandbox from a container image |
-| **List** | `GET /sandboxes` | List sandboxes with filtering and pagination |
-| **Get** | `GET /sandboxes/{id}` | Retrieve sandbox details and status |
-| **Delete** | `DELETE /sandboxes/{id}` | Terminate a sandbox |
-| **Pause** | `POST /sandboxes/{id}/pause` | Pause a running sandbox |
-| **Resume** | `POST /sandboxes/{id}/resume` | Resume a paused sandbox |
-| **Renew** | `POST /sandboxes/{id}/renew-expiration` | Extend sandbox TTL |
-| **Endpoint** | `GET /sandboxes/{id}/endpoints/{port}` | Get public URL for a port |
+| Operation    | Endpoint                                | Description                                  |
+| ------------ | --------------------------------------- | -------------------------------------------- |
+| **Create**   | `POST /sandboxes`                       | Create a new sandbox from a container image  |
+| **List**     | `GET /sandboxes`                        | List sandboxes with filtering and pagination |
+| **Get**      | `GET /sandboxes/{id}`                   | Retrieve sandbox details and status          |
+| **Delete**   | `DELETE /sandboxes/{id}`                | Terminate a sandbox                          |
+| **Pause**    | `POST /sandboxes/{id}/pause`            | Pause a running sandbox                      |
+| **Resume**   | `POST /sandboxes/{id}/resume`           | Resume a paused sandbox                      |
+| **Renew**    | `POST /sandboxes/{id}/renew-expiration` | Extend sandbox TTL                           |
+| **Endpoint** | `GET /sandboxes/{id}/endpoints/{port}`  | Get public URL for a port                    |
 
 ### 2.2 Sandbox Execution Spec
 
@@ -130,18 +139,22 @@ The Execution Spec defines the API for interacting with running sandbox instance
 #### API Categories
 
 **Health**
+
 - `GET /ping` - Health check
 
 **Code Interpreting**
+
 - `POST /code/context` - Create execution context
 - `POST /code` - Execute code with streaming output
 - `DELETE /code` - Interrupt code execution
 
 **Command Execution**
+
 - `POST /command` - Execute shell command
 - `DELETE /command` - Interrupt command
 
 **Filesystem**
+
 - `GET /files/info` - Get file metadata
 - `DELETE /files` - Remove files
 - `POST /files/permissions` - Change permissions
@@ -154,6 +167,7 @@ The Execution Spec defines the API for interacting with running sandbox instance
 - `DELETE /directories` - Remove directories
 
 **Metrics**
+
 - `GET /metrics` - Get system metrics snapshot
 - `GET /metrics/watch` - Stream metrics via SSE
 
@@ -179,6 +193,7 @@ The OpenSandbox server is a FastAPI-based service providing:
 #### Docker Runtime (Ready)
 
 **Features:**
+
 - Direct Docker API integration
 - Two networking modes:
   - **Host Mode**: Containers share host network (single instance)
@@ -190,6 +205,7 @@ The OpenSandbox server is a FastAPI-based service providing:
 - Automatic cleanup on expiration
 
 **Key Responsibilities:**
+
 1. Pull container images (with auth support)
 2. Create containers with resource limits
 3. Inject execd binary and start script
@@ -200,6 +216,7 @@ The OpenSandbox server is a FastAPI-based service providing:
 #### Kubernetes Runtime (Roadmap)
 
 **Planned Features:**
+
 - Pod-based sandbox instances
 - Native Kubernetes resource management
 - Multi-tenancy support
@@ -211,6 +228,7 @@ The OpenSandbox server is a FastAPI-based service providing:
 #### Custom Runtime
 
 The pluggable architecture allows implementing custom runtimes by:
+
 1. Implementing the Lifecycle Spec APIs
 2. Managing sandbox provisioning and cleanup
 3. Injecting execd into sandbox instances
@@ -223,6 +241,7 @@ The pluggable architecture allows implementing custom runtimes by:
 **Purpose**: Provides HTTP/HTTPS load balancing to sandbox instance ports.
 
 **Features:**
+
 - Dynamic endpoint generation based on sandbox ID and port
 - Supports both domain-based and wildcard-domain routing
 - Reverse proxy to sandbox container ports
@@ -231,6 +250,7 @@ The pluggable architecture allows implementing custom runtimes by:
 **Endpoint Format**: `{domain}/sandboxes/{sandboxId}/port/{port}`
 
 **Use Cases:**
+
 - Accessing web applications running in sandboxes
 - Connecting to development servers (e.g., VS Code Server)
 - Exposing APIs and services
@@ -264,12 +284,14 @@ execd is a Go-based HTTP daemon built on the Beego framework.
 #### Architecture
 
 **Technology Stack:**
+
 - **Language**: Go 1.24+
 - **Web Framework**: Beego
 - **Jupyter Integration**: WebSocket-based Jupyter protocol client
 - **Streaming**: Server-Sent Events (SSE)
 
 **Package Structure:**
+
 - `pkg/flag/` - Configuration and CLI flags
 - `pkg/web/` - HTTP layer (controllers, models, router)
 - `pkg/runtime/` - Execution dispatcher
@@ -286,6 +308,7 @@ execd integrates with Jupyter Server running inside the container:
 4. **Stream Parsing**: Parse execution results, outputs, errors
 
 **Supported Kernels:**
+
 - Python (IPython)
 - Java (IJava)
 - JavaScript (IJavaScript)
@@ -322,6 +345,7 @@ exec "${USER_ENTRYPOINT[@]}"
 ```
 
 **Benefits:**
+
 - Transparent to user code
 - No image modification required
 - Dynamic injection at runtime
@@ -448,81 +472,3 @@ Sandbox Container Filesystem
 - Real-time metrics streaming
 - Comprehensive logging
 - Health check endpoints
-
-## 7. Use Cases
-
-### 7.1 AI Code Generation and Execution
-
-AI models (like Claude, GPT-4, Gemini) generate code that needs to be executed safely:
-
-- **Isolation**: Run untrusted AI-generated code in sandboxes
-- **Multi-Language**: Support various programming languages
-- **Iteration**: Maintain state across multiple code generations
-- **Feedback**: Capture execution results and errors for AI refinement
-
-**Examples**: [claude-code](../examples/claude-code/), [gemini-cli](../examples/gemini-cli/), [codex-cli](../examples/codex-cli/)
-
-### 7.2 Interactive Coding Environments
-
-Build web-based coding platforms and notebooks:
-
-- **Code Execution**: Run code in isolated environments
-- **File Management**: Upload/download project files
-- **Terminal Access**: Execute shell commands
-- **Collaboration**: Share sandbox instances
-
-**Examples**: [code-interpreter](../examples/code-interpreter/)
-
-### 7.3 Browser Automation and Testing
-
-Automate web browsers for testing and scraping:
-
-- **Headless Browsers**: Chrome, Playwright
-- **Remote Debugging**: DevTools protocol
-- **VNC Access**: Visual debugging
-- **Network Isolation**: Controlled environment
-
-**Examples**: [chrome](../examples/chrome/), [playwright](../examples/playwright/)
-
-### 7.4 Remote Development Environments
-
-Provide cloud-based development workspaces:
-
-- **VS Code Server**: Full IDE in browser
-- **Desktop Environments**: VNC-based desktops
-- **Tool Pre-installation**: Language runtimes, build tools
-- **Port Forwarding**: Access development servers
-
-**Examples**: [vscode](../examples/vscode/), [desktop](../examples/desktop/)
-
-### 7.5 Continuous Integration and Testing
-
-Run build and test pipelines in isolated environments:
-
-- **Reproducible Builds**: Consistent container images
-- **Parallel Execution**: Multiple sandbox instances
-- **Artifact Collection**: Download build outputs
-- **Resource Limits**: Prevent resource exhaustion
-
-## 8. Conclusion
-
-OpenSandbox provides a complete, production-ready platform for building AI-powered applications that require safe code execution, file management, and command execution in isolated environments. The architecture is designed to be:
-
-- **Universal**: Works with any container image
-- **Extensible**: Pluggable runtimes and custom implementations
-- **Developer-Friendly**: Multi-language SDKs with consistent APIs
-- **Production-Ready**: Robust lifecycle management and observability
-- **Secure**: Isolated environments with access control
-
-The protocol-first design ensures that all components can evolve independently while maintaining compatibility. Whether you're building AI coding assistants, interactive notebooks, or remote development environments, OpenSandbox provides the foundation you need.
-
-## 9. References
-
-- [Contributing Guide](contributing.md)
-- [Sandbox Lifecycle Spec](../specs/sandbox-lifecycle.yml)
-- [Sandbox Execution Spec](../specs/execd-api.yaml)
-- [Server Documentation](../server/README.md)
-- [execd Documentation](../components/execd/README.md)
-- [Python SDK](../sdks/sandbox/python/README.md)
-- [Java/Kotlin SDK](../sdks/sandbox/kotlin/README.md)
-- [Examples](../examples/README.md)
