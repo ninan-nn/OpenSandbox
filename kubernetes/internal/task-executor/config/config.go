@@ -16,7 +16,6 @@ package config
 
 import (
 	"flag"
-	"fmt"
 	"os"
 	"path"
 	"time"
@@ -90,9 +89,6 @@ func (c *Config) LoadFromFlags() {
 }
 
 func (c *Config) InitKlog() error {
-	if err := os.MkdirAll(c.LogDir, 0755); err != nil {
-		return fmt.Errorf("failed to create log directory: %w", err)
-	}
 	logFile := path.Join(c.LogDir, "task-executor.log")
 	fs := flag.NewFlagSet("klog", flag.ContinueOnError)
 	klog.InitFlags(fs)
