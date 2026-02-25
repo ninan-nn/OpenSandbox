@@ -1,0 +1,105 @@
+name: Publish C# SDKs
+
+on:
+  push:
+    tags:
+      - "csharp/sandbox/v*"
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish (${{ matrix.sdk.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk:
+          - name: sandbox
+            tagPrefix: sandbox
+            workingDirectory: sdks/sandbox/csharp
+            projectFile: OpenSandbox.Sandbox.csproj
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Resolve version from tag
+        id: version
+        run: |
+          TAG_NAME="${GITHUB_REF_NAME}"
+          PREFIX="csharp/${{ matrix.sdk.tagPrefix }}/v"
+
+          if [[ "${TAG_NAME}" != ${PREFIX}* ]]; then
+            echo "Tag '${TAG_NAME}' does not match expected prefix '${PREFIX}'"
+            exit 1
+          fi
+
+          VERSION="${TAG_NAME#${PREFIX}}"
+          if [[ -z "${VERSION}" ]]; then
+            echo "Version cannot be empty."
+            exit 1
+          fi
+
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Validate project version matches tag
+        working-directory: ${{ matrix.sdk.workingDirectory }}
+        run: |
+          TAG_VERSION="${{ steps.version.outputs.version }}"
+          PROJECT_VERSION="$(dotnet msbuild ${{ matrix.sdk.projectFile }} -nologo -getProperty:Version | tr -d '\r' | xargs)"
+
+          if [[ -z "${PROJECT_VERSION}" ]]; then
+            echo "Failed to read <Version> from '${{ matrix.sdk.projectFile }}'."
+            exit 1
+          fi
+
+          if [[ "${PROJECT_VERSION}" != "${TAG_VERSION}" ]]; then
+            echo "::error::Version mismatch. Tag version is '${TAG_VERSION}' but project version is '${PROJECT_VERSION}'."
+            exit 1
+          fi
+
+      - name: Restore dependencies
+        working-directory: ${{ matrix.sdk.workingDirectory }}
+        run: |
+          dotnet restore ${{ matrix.sdk.projectFile }}
+
+      - name: Build SDK
+        working-directory: ${{ matrix.sdk.workingDirectory }}
+        run: |
+          dotnet build ${{ matrix.sdk.projectFile }} -c Release --no-restore
+
+      - name: Pack NuGet package
+        working-directory: ${{ matrix.sdk.workingDirectory }}
+        run: |
+          dotnet pack ${{ matrix.sdk.projectFile }} \
+            -c Release \
+            --no-build \
+            -o ./artifacts \
+            -p:ContinuousIntegrationBuild=true
+
+      - name: Publish to NuGet
+        if: startsWith(github.ref, format('refs/tags/csharp/{0}/v', matrix.sdk.tagPrefix))
+        working-directory: ${{ matrix.sdk.workingDirectory }}
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          shopt -s nullglob
+          packages=(./artifacts/*.nupkg)
+          if [ ${#packages[@]} -eq 0 ]; then
+            echo "No .nupkg package found in ./artifacts"
+            exit 1
+          fi
+
+          for pkg in "${packages[@]}"; do
+            dotnet nuget push "${pkg}" \
+              --api-key "${NUGET_API_KEY}" \
+              --source "https://api.nuget.org/v3/index.json" \
+              --skip-duplicate
+          done

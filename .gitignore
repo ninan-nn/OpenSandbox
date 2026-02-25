@@ -256,6 +256,7 @@ out/
 .classpath
 .settings/
 bin/
+obj/
 
 # NetBeans specific
 nbproject/

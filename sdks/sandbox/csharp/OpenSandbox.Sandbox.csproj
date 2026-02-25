@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+
+    <PackageId>Alibaba.OpenSandbox</PackageId>
+    <Version>0.1.0-alpha.1</Version>
+    <Authors>OpenSandbox Team</Authors>
+    <Company>Alibaba Group</Company>
+    <Description>OpenSandbox C# SDK - Secure, isolated execution environments</Description>
+    <PackageTags>sandbox;code-execution;docker;security;sdk;opensandbox</PackageTags>
+    <PackageProjectUrl>https://github.com/alibaba/OpenSandbox</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/alibaba/OpenSandbox.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <IncludeSymbols>false</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+    <None Include="../../../LICENSE" Pack="true" PackagePath="\" Link="LICENSE" />
+  </ItemGroup>
+</Project>
