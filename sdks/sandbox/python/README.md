@@ -183,7 +183,7 @@ await sandbox.files.write_files([
     WriteEntry(
         path="/tmp/hello.txt",
         data="Hello World",
-        mode=0o644
+        mode=644
     )
 ])
 
@@ -236,16 +236,16 @@ async with await SandboxManager.create(connection_config=config) as manager:
 
 The `ConnectionConfig` class manages API server connection settings.
 
-| Parameter         | Description                                | Default                      | Environment Variable   |
-| ----------------- | ------------------------------------------ | ---------------------------- | ---------------------- |
-| `api_key`         | API Key for authentication                 | Required                     | `OPEN_SANDBOX_API_KEY` |
-| `domain`          | The endpoint domain of the sandbox service | Required (or localhost:8080) | `OPEN_SANDBOX_DOMAIN`  |
-| `protocol`        | HTTP protocol (http/https)                 | `http`                       | -                      |
-| `request_timeout` | Timeout for API requests                   | 30 seconds                   | -                      |
-| `debug`           | Enable debug logging for HTTP requests     | `False`                      | -                      |
-| `headers`         | Custom HTTP headers                        | Empty                        | -                      |
-| `transport`       | Shared httpx transport (pool/proxy/retry)  | SDK-created per instance     | -                      |
-| `use_server_proxy` | Use sandbox server as proxy for execd/endpoint requests (e.g. when client cannot reach the sandbox directly) | `False` | -                      |
+| Parameter          | Description                                                                                                  | Default                      | Environment Variable   |
+| ------------------ | ------------------------------------------------------------------------------------------------------------ | ---------------------------- | ---------------------- |
+| `api_key`          | API Key for authentication                                                                                   | Required                     | `OPEN_SANDBOX_API_KEY` |
+| `domain`           | The endpoint domain of the sandbox service                                                                   | Required (or localhost:8080) | `OPEN_SANDBOX_DOMAIN`  |
+| `protocol`         | HTTP protocol (http/https)                                                                                   | `http`                       | -                      |
+| `request_timeout`  | Timeout for API requests                                                                                     | 30 seconds                   | -                      |
+| `debug`            | Enable debug logging for HTTP requests                                                                       | `False`                      | -                      |
+| `headers`          | Custom HTTP headers                                                                                          | Empty                        | -                      |
+| `transport`        | Shared httpx transport (pool/proxy/retry)                                                                    | SDK-created per instance     | -                      |
+| `use_server_proxy` | Use sandbox server as proxy for execd/endpoint requests (e.g. when client cannot reach the sandbox directly) | `False`                      | -                      |
 
 ```python
 from datetime import timedelta
@@ -283,16 +283,16 @@ config = ConnectionConfig(
 
 The `Sandbox.create()` allows configuring the sandbox environment.
 
-| Parameter       | Description                              | Default                         |
-| --------------- | ---------------------------------------- | ------------------------------- |
-| `image`    | Docker image specification               | Required                        |
-| `timeout`       | Automatic termination timeout            | 10 minutes                      |
-| `entrypoint`    | Container entrypoint command             | `["tail", "-f", "/dev/null"]`   |
-| `resource`      | CPU and memory limits                    | `{"cpu": "1", "memory": "2Gi"}` |
-| `env`           | Environment variables                    | Empty                           |
-| `metadata`      | Custom metadata tags                     | Empty                           |
-| `network_policy` | Optional outbound network policy (egress) | -                             |
-| `ready_timeout` | Max time to wait for sandbox to be ready | 30 seconds                      |
+| Parameter        | Description                               | Default                         |
+| ---------------- | ----------------------------------------- | ------------------------------- |
+| `image`          | Docker image specification                | Required                        |
+| `timeout`        | Automatic termination timeout             | 10 minutes                      |
+| `entrypoint`     | Container entrypoint command              | `["tail", "-f", "/dev/null"]`   |
+| `resource`       | CPU and memory limits                     | `{"cpu": "1", "memory": "2Gi"}` |
+| `env`            | Environment variables                     | Empty                           |
+| `metadata`       | Custom metadata tags                      | Empty                           |
+| `network_policy` | Optional outbound network policy (egress) | -                               |
+| `ready_timeout`  | Max time to wait for sandbox to be ready  | 30 seconds                      |
 
 ```python
 from datetime import timedelta
