@@ -183,7 +183,7 @@ await sandbox.files.write_files([
     WriteEntry(
         path="/tmp/hello.txt",
         data="Hello World",
-        mode=0o644
+        mode=644
     )
 ])
 
@@ -210,7 +210,7 @@ await sandbox.files.delete_files(["/tmp/hello.txt"])
 使用 `SandboxManager` 进行管理操作，如查询现有沙箱列表。
 
 ```python
-from opensandbox.sandbox import SandboxManager
+from opensandbox.manager import SandboxManager
 from opensandbox.models.sandboxes import SandboxFilter
 
 # 使用异步上下文管理器创建管理器
@@ -236,16 +236,16 @@ async with await SandboxManager.create(connection_config=config) as manager:
 
 `ConnectionConfig` 类管理与 API 服务器的连接设置。
 
-| 参数              | 描述                                     | 默认值                   | 环境变量               |
-| ----------------- | ---------------------------------------- | ------------------------ | ---------------------- |
-| `api_key`         | 用于认证的 API Key                       | 必填                     | `OPEN_SANDBOX_API_KEY` |
-| `domain`          | 沙箱服务的端点域名                       | 必填 (或 localhost:8080) | `OPEN_SANDBOX_DOMAIN`  |
-| `protocol`        | HTTP 协议 (http/https)                   | `http`                   | -                      |
-| `request_timeout` | API 请求超时时间                         | 30 秒                    | -                      |
-| `debug`           | 是否开启 HTTP 请求的调试日志             | `False`                  | -                      |
-| `headers`         | 自定义 HTTP 请求头                       | 空                       | -                      |
-| `transport`       | 共享 httpx transport（连接池/代理/重试） | SDK 每实例创建           | -                      |
-| `use_server_proxy` | 是否通过沙箱服务代理访问 execd/endpoint（适用于客户端无法直连沙箱的场景） | `False` | -                      |
+| 参数               | 描述                                                                      | 默认值                   | 环境变量               |
+| ------------------ | ------------------------------------------------------------------------- | ------------------------ | ---------------------- |
+| `api_key`          | 用于认证的 API Key                                                        | 必填                     | `OPEN_SANDBOX_API_KEY` |
+| `domain`           | 沙箱服务的端点域名                                                        | 必填 (或 localhost:8080) | `OPEN_SANDBOX_DOMAIN`  |
+| `protocol`         | HTTP 协议 (http/https)                                                    | `http`                   | -                      |
+| `request_timeout`  | API 请求超时时间                                                          | 30 秒                    | -                      |
+| `debug`            | 是否开启 HTTP 请求的调试日志                                              | `False`                  | -                      |
+| `headers`          | 自定义 HTTP 请求头                                                        | 空                       | -                      |
+| `transport`        | 共享 httpx transport（连接池/代理/重试）                                  | SDK 每实例创建           | -                      |
+| `use_server_proxy` | 是否通过沙箱服务代理访问 execd/endpoint（适用于客户端无法直连沙箱的场景） | `False`                  | -                      |
 
 ```python
 from datetime import timedelta
@@ -283,16 +283,16 @@ config = ConnectionConfig(
 
 `Sandbox.create()` 用于配置沙箱环境。
 
-| 参数            | 描述                 | 默认值                          |
-| --------------- | -------------------- | ------------------------------- |
-| `image`    | Docker 镜像        | 必填                            |
-| `timeout`       | 自动终止的超时时间     | 10 分钟                         |
-| `entrypoint`    | 容器启动入口命令       | `["tail", "-f", "/dev/null"]`   |
-| `resource`      | CPU 和内存限制        | `{"cpu": "1", "memory": "2Gi"}` |
-| `env`           | 环境变量             | 空                              |
-| `metadata`      | 自定义元数据标签       | 空                              |
-| `network_policy` | 可选的出站网络策略（egress） | -                         |
-| `ready_timeout` | 等待沙箱就绪的最大时间 | 30 秒                           |
+| 参数             | 描述                         | 默认值                          |
+| ---------------- | ---------------------------- | ------------------------------- |
+| `image`          | Docker 镜像                  | 必填                            |
+| `timeout`        | 自动终止的超时时间           | 10 分钟                         |
+| `entrypoint`     | 容器启动入口命令             | `["tail", "-f", "/dev/null"]`   |
+| `resource`       | CPU 和内存限制               | `{"cpu": "1", "memory": "2Gi"}` |
+| `env`            | 环境变量                     | 空                              |
+| `metadata`       | 自定义元数据标签             | 空                              |
+| `network_policy` | 可选的出站网络策略（egress） | -                               |
+| `ready_timeout`  | 等待沙箱就绪的最大时间       | 30 秒                           |
 
 ```python
 from datetime import timedelta
