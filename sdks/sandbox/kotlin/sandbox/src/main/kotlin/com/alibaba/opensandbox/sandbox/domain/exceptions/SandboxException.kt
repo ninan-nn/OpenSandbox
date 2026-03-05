@@ -27,6 +27,7 @@ open class SandboxException(
     message: String? = null,
     cause: Throwable? = null,
     val error: SandboxError,
+    val requestId: String? = null,
 ) : RuntimeException(message, cause)
 
 /**
@@ -37,7 +38,8 @@ class SandboxApiException(
     cause: Throwable? = null,
     val statusCode: Int? = null,
     error: SandboxError = SandboxError(SandboxError.UNEXPECTED_RESPONSE),
-) : SandboxException(message, cause, error)
+    requestId: String? = null,
+) : SandboxException(message, cause, error, requestId)
 
 /**
  * Thrown when an unexpected internal error occurs within the SDK

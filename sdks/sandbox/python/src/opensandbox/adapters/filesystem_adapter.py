@@ -35,7 +35,10 @@ from opensandbox.adapters.converter.exception_converter import (
 from opensandbox.adapters.converter.filesystem_model_converter import (
     FilesystemModelConverter,
 )
-from opensandbox.adapters.converter.response_handler import handle_api_error
+from opensandbox.adapters.converter.response_handler import (
+    extract_request_id,
+    handle_api_error,
+)
 from opensandbox.config import ConnectionConfig
 from opensandbox.exceptions import InvalidArgumentException, SandboxApiException
 from opensandbox.models.filesystem import (
@@ -208,6 +211,7 @@ class FilesystemAdapter(Filesystem):
                 raise SandboxApiException(
                     f"Failed to stream file {path}: {response.status_code}",
                     status_code=response.status_code,
+                    request_id=extract_request_id(response.headers),
                 )
             return response.aiter_bytes(chunk_size=chunk_size)
         except Exception as e:
@@ -440,6 +444,7 @@ class FilesystemAdapter(Filesystem):
                 return FilesystemModelConverter.to_entry_info_list(parsed)
             raise SandboxApiException(
                 message="Search files failed: unexpected response type",
+                request_id=extract_request_id(response_obj.headers),
             )
 
         except Exception as e:
