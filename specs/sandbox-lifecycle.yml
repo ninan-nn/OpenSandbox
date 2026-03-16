@@ -279,11 +279,12 @@ paths:
       tags: [Sandboxes]
       summary: Patch new egress rules for a sandbox
       description: |
-        Update egress rules for the sandbox and apply changes asynchronously.
+        Update egress rules for the sandbox synchronously.
 
-        This endpoint uses overwrite semantics (not append/merge semantics).
-        If multiple rules in the patch payload refer to the same `target`,
-        the later rule overrides the earlier rule for that `target`.
+        This endpoint uses merge semantics aligned with the egress sidecar `/policy` PATCH behavior:
+        - Existing rules remain unless overridden by incoming rules.
+        - Incoming rules are applied with higher priority than existing rules.
+        - If multiple incoming rules refer to the same `target`, the first one wins.
       parameters:
         - $ref: '#/components/parameters/SandboxId'
       requestBody:
@@ -292,23 +293,23 @@ paths:
           application/json:
             schema:
               type: array
+              minItems: 1
               items:
                 $ref: '#/components/schemas/NetworkRule'
             examples:
-              duplicate-target-last-wins:
-                summary: Later rule overrides earlier rule for the same target
+              duplicate-target-first-wins:
+                summary: First rule wins for duplicate target within the same patch payload
                 value:
                   - action: allow
                     target: "example.com"
                   - action: deny
                     target: "example.com"
       responses:
-        '202':
+        '200':
           description: |
-            Egress rules patch accepted.
-
-            The update is queued and will be applied by the controller.
-            Duplicate `target` values follow overwrite semantics (last rule wins).
+            Egress rules patch completed successfully.
+            Rules are merged with existing policy in sidecar PATCH semantics.
+            Existing unmatched rules are retained; duplicate targets in payload use first-wins.
           headers:
             X-Request-ID:
               $ref: '#/components/headers/XRequestId'
@@ -1100,3 +1101,4 @@ components:
           description: OSS access key secret for inline credentials mode.
           minLength: 1
       additionalProperties: false
+
