@@ -483,6 +483,28 @@ public sealed class Sandbox : IAsyncDisposable
     }
 
     /// <summary>
+    /// Gets current egress policy for this sandbox.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The current egress policy.</returns>
+    public Task<NetworkPolicy> GetEgressPolicyAsync(CancellationToken cancellationToken = default)
+    {
+        return _sandboxes.GetEgressPolicyAsync(Id, cancellationToken);
+    }
+
+    /// <summary>
+    /// Overwrites egress rules for this sandbox.
+    /// </summary>
+    /// <param name="rules">Patch egress rules payload.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public Task PatchEgressRulesAsync(
+        IReadOnlyList<NetworkRule> rules,
+        CancellationToken cancellationToken = default)
+    {
+        return _sandboxes.PatchEgressRulesAsync(Id, rules, cancellationToken);
+    }
+
+    /// <summary>
     /// Gets the endpoint for a port.
     /// </summary>
     /// <param name="port">The port number.</param>

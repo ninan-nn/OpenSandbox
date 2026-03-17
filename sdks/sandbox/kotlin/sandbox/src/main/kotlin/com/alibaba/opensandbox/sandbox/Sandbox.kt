@@ -23,6 +23,7 @@ import com.alibaba.opensandbox.sandbox.domain.exceptions.SandboxInternalExceptio
 import com.alibaba.opensandbox.sandbox.domain.exceptions.SandboxReadyTimeoutException
 import com.alibaba.opensandbox.sandbox.domain.models.execd.DEFAULT_EXECD_PORT
 import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.NetworkPolicy
+import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.NetworkRule
 import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.SandboxEndpoint
 import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.SandboxImageSpec
 import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.SandboxInfo
@@ -421,6 +422,24 @@ class Sandbox internal constructor(
     fun renew(timeout: Duration): SandboxRenewResponse {
         logger.info("Renew sandbox {} timeout, estimated expiration to {}", id, OffsetDateTime.now().plus(timeout))
         return sandboxService.renewSandboxExpiration(id, OffsetDateTime.now().plus(timeout))
+    }
+
+    /**
+     * Gets current egress policy for this sandbox.
+     *
+     * @throws SandboxException if operation fails
+     */
+    fun getEgressPolicy(): NetworkPolicy {
+        return sandboxService.getEgressPolicy(id)
+    }
+
+    /**
+     * Overwrites egress rules for this sandbox.
+     *
+     * @throws SandboxException if operation fails
+     */
+    fun patchEgressRules(rules: List<NetworkRule>) {
+        sandboxService.patchEgressRules(id, rules)
     }
 
     /**

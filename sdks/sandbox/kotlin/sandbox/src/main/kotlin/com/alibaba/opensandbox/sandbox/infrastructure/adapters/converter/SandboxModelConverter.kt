@@ -106,6 +106,41 @@ internal object SandboxModelConverter {
         )
     }
 
+    fun NetworkRule.toApiNetworkRule(): ApiNetworkRule {
+        val action =
+            when (this.action) {
+                NetworkRule.Action.ALLOW -> ApiNetworkRule.Action.allow
+                NetworkRule.Action.DENY -> ApiNetworkRule.Action.deny
+            }
+        return ApiNetworkRule(action = action, target = this.target)
+    }
+
+    fun ApiNetworkRule.toDomainNetworkRule(): NetworkRule {
+        val action =
+            when (this.action) {
+                ApiNetworkRule.Action.allow -> NetworkRule.Action.ALLOW
+                ApiNetworkRule.Action.deny -> NetworkRule.Action.DENY
+            }
+        return NetworkRule
+            .builder()
+            .action(action)
+            .target(this.target)
+            .build()
+    }
+
+    fun ApiNetworkPolicy.toDomainNetworkPolicy(): NetworkPolicy {
+        val defaultAction =
+            when (this.defaultAction) {
+                ApiNetworkPolicy.DefaultAction.allow -> NetworkPolicy.DefaultAction.ALLOW
+                ApiNetworkPolicy.DefaultAction.deny, null -> NetworkPolicy.DefaultAction.DENY
+            }
+        return NetworkPolicy
+            .builder()
+            .defaultAction(defaultAction)
+            .egress(this.egress?.map { it.toDomainNetworkRule() } ?: emptyList())
+            .build()
+    }
+
     /**
      * Converts Domain Host -> API Host
      */

@@ -33,6 +33,7 @@ import type {
   CreateSandboxRequest,
   Endpoint,
   NetworkPolicy,
+  NetworkRule,
   RenewSandboxExpirationResponse,
   SandboxId,
   SandboxInfo,
@@ -497,6 +498,14 @@ export class Sandbox {
       Date.now() + timeoutSeconds * 1000
     ).toISOString();
     return await this.sandboxes.renewSandboxExpiration(this.id, { expiresAt });
+  }
+
+  async getEgressPolicy(): Promise<NetworkPolicy> {
+    return await this.sandboxes.getEgressPolicy(this.id);
+  }
+
+  async patchEgressRules(rules: NetworkRule[]): Promise<void> {
+    await this.sandboxes.patchEgressRules(this.id, rules);
   }
 
   /**

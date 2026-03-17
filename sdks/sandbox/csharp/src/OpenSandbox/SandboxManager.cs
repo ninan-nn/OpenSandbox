@@ -167,6 +167,35 @@ public sealed class SandboxManager : IAsyncDisposable
     }
 
     /// <summary>
+    /// Gets current egress policy for a sandbox.
+    /// </summary>
+    /// <param name="sandboxId">The sandbox ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The current egress policy.</returns>
+    public Task<NetworkPolicy> GetEgressPolicyAsync(
+        string sandboxId,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Getting egress policy for sandbox: {SandboxId}", sandboxId);
+        return _sandboxes.GetEgressPolicyAsync(sandboxId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Overwrites egress rules for a sandbox.
+    /// </summary>
+    /// <param name="sandboxId">The sandbox ID.</param>
+    /// <param name="rules">Patch egress rules payload.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public Task PatchEgressRulesAsync(
+        string sandboxId,
+        IReadOnlyList<NetworkRule> rules,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("Patching egress rules for sandbox: {SandboxId}, count={RuleCount}", sandboxId, rules.Count);
+        return _sandboxes.PatchEgressRulesAsync(sandboxId, rules, cancellationToken);
+    }
+
+    /// <summary>
     /// Renews the expiration time of a sandbox.
     /// </summary>
     /// <param name="sandboxId">The sandbox ID.</param>

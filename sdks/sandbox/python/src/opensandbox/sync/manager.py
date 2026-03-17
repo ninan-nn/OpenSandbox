@@ -23,6 +23,8 @@ from typing import Any
 
 from opensandbox.config.connection_sync import ConnectionConfigSync
 from opensandbox.models.sandboxes import (
+    NetworkPolicy,
+    NetworkRule,
     PagedSandboxInfos,
     SandboxFilter,
     SandboxInfo,
@@ -182,6 +184,18 @@ class SandboxManagerSync:
         """
         logger.info("Resuming sandbox: %s", sandbox_id)
         self._sandbox_service.resume_sandbox(sandbox_id)
+
+    def get_egress_policy(self, sandbox_id: str) -> NetworkPolicy:
+        """
+        Get current egress policy for a sandbox.
+        """
+        return self._sandbox_service.get_egress_policy(sandbox_id)
+
+    def patch_egress_rules(self, sandbox_id: str, rules: list[NetworkRule]) -> None:
+        """
+        Overwrite egress rules for a sandbox.
+        """
+        self._sandbox_service.patch_egress_rules(sandbox_id, rules)
 
     def close(self) -> None:
         """

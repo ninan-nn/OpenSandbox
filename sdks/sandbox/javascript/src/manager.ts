@@ -16,7 +16,7 @@ import { ConnectionConfig, type ConnectionConfigOptions } from "./config/connect
 import { createDefaultAdapterFactory } from "./factory/defaultAdapterFactory.js";
 import type { AdapterFactory } from "./factory/adapterFactory.js";
 
-import type { ListSandboxesResponse, SandboxId, SandboxInfo } from "./models/sandboxes.js";
+import type { ListSandboxesResponse, NetworkPolicy, NetworkRule, SandboxId, SandboxInfo } from "./models/sandboxes.js";
 import type { Sandboxes } from "./services/sandboxes.js";
 
 export interface SandboxManagerOptions {
@@ -106,6 +106,14 @@ export class SandboxManager {
 
   resumeSandbox(sandboxId: SandboxId): Promise<void> {
     return this.sandboxes.resumeSandbox(sandboxId);
+  }
+
+  getEgressPolicy(sandboxId: SandboxId): Promise<NetworkPolicy> {
+    return this.sandboxes.getEgressPolicy(sandboxId);
+  }
+
+  patchEgressRules(sandboxId: SandboxId, rules: NetworkRule[]): Promise<void> {
+    return this.sandboxes.patchEgressRules(sandboxId, rules);
   }
 
   /**

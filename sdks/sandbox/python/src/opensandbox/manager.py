@@ -26,6 +26,8 @@ from datetime import datetime, timedelta, timezone
 from opensandbox.adapters.factory import AdapterFactory
 from opensandbox.config import ConnectionConfig
 from opensandbox.models.sandboxes import (
+    NetworkPolicy,
+    NetworkRule,
     PagedSandboxInfos,
     SandboxFilter,
     SandboxInfo,
@@ -207,6 +209,18 @@ class SandboxManager:
         """
         logger.info(f"Resuming sandbox: {sandbox_id}")
         await self._sandbox_service.resume_sandbox(sandbox_id)
+
+    async def get_egress_policy(self, sandbox_id: str) -> NetworkPolicy:
+        """
+        Get current egress policy for a sandbox.
+        """
+        return await self._sandbox_service.get_egress_policy(sandbox_id)
+
+    async def patch_egress_rules(self, sandbox_id: str, rules: list[NetworkRule]) -> None:
+        """
+        Overwrite egress rules for a sandbox.
+        """
+        await self._sandbox_service.patch_egress_rules(sandbox_id, rules)
 
     async def close(self) -> None:
         """

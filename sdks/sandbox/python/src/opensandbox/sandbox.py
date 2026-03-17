@@ -35,6 +35,7 @@ from opensandbox.exceptions import (
 )
 from opensandbox.models.sandboxes import (
     NetworkPolicy,
+    NetworkRule,
     SandboxEndpoint,
     SandboxImageSpec,
     SandboxInfo,
@@ -220,6 +221,18 @@ class Sandbox:
             f"Renewing sandbox {self.id} timeout, estimated expiration: {new_expiration}"
         )
         return await self._sandbox_service.renew_sandbox_expiration(self.id, new_expiration)
+
+    async def get_egress_policy(self) -> NetworkPolicy:
+        """
+        Get current egress policy for this sandbox.
+        """
+        return await self._sandbox_service.get_egress_policy(self.id)
+
+    async def patch_egress_rules(self, rules: list[NetworkRule]) -> None:
+        """
+        Overwrite egress rules for this sandbox.
+        """
+        await self._sandbox_service.patch_egress_rules(self.id, rules)
 
     async def pause(self) -> None:
         """

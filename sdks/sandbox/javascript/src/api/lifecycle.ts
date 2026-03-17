@@ -271,6 +271,96 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sandboxes/{sandboxId}/egress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get existed egress rules for a sandbox
+         * @description Retrieve current egress policy for the sandbox.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Unique sandbox identifier */
+                    sandboxId: components["parameters"]["SandboxId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Current egress policy returned successfully. */
+                200: {
+                    headers: {
+                        "X-Request-ID": components["headers"]["XRequestId"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["NetworkPolicy"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalServerError"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Patch new egress rules for a sandbox
+         * @description Update egress rules for the sandbox synchronously.
+         *
+         *     This endpoint uses merge semantics aligned with the egress sidecar `/policy` PATCH behavior:
+         *     - Existing rules remain unless overridden by incoming rules.
+         *     - Incoming rules are applied with higher priority than existing rules.
+         *     - If multiple incoming rules refer to the same `target`, the first one wins.
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Unique sandbox identifier */
+                    sandboxId: components["parameters"]["SandboxId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["NetworkRule"][];
+                };
+            };
+            responses: {
+                /**
+                 * @description Egress rules patch completed successfully.
+                 *     Rules are merged with existing policy in sidecar PATCH semantics.
+                 *     Existing unmatched rules are retained; duplicate targets in payload use first-wins.
+                 */
+                200: {
+                    headers: {
+                        "X-Request-ID": components["headers"]["XRequestId"];
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalServerError"];
+            };
+        };
+        trace?: never;
+    };
     "/sandboxes/{sandboxId}/resume": {
         parameters: {
             query?: never;
@@ -584,6 +674,8 @@ export interface components {
              * @description Sandbox timeout in seconds. The sandbox will automatically terminate after this duration.
              *     The maximum is controlled by the server configuration (`server.max_sandbox_timeout_seconds`).
              *     Omit or set null to disable automatic expiration and require explicit cleanup.
+             *     Note: manual cleanup support is runtime-dependent; Kubernetes providers may reject
+             *     null timeout when the underlying workload provider does not support non-expiring sandboxes.
              */
             timeout?: number | null;
             /**
@@ -820,6 +912,7 @@ export interface components {
          *     The runtime mounts a host-side OSS path under `storage.ossfs_mount_root`
          *     and bind-mounts the resolved path into the sandbox container.
          *     Prefix selection is expressed via `Volume.subPath`.
+         *     In Docker runtime, OSSFS backend requires OpenSandbox Server to run on a Linux host with FUSE support.
          */
         OSSFS: {
             /** @description OSS bucket name. */
@@ -832,7 +925,13 @@ export interface components {
              * @enum {string}
              */
             version: "1.0" | "2.0";
-            /** @description Additional ossfs mount options. */
+            /**
+             * @description Additional ossfs mount options.
+             *     Runtime encodes options by `version`:
+             *     - `1.0`: mounts with `ossfs ... -o <option>`
+             *     - `2.0`: mounts with `ossfs2 mount ... -c <config-file>` and encodes options as `--<option>` lines in the config file
+             *     Option values must be provided as raw payloads without leading `-`.
+             */
             options?: string[];
             /** @description OSS access key ID for inline credentials mode. */
             accessKeyId: string;
