@@ -143,6 +143,71 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create bash session (create_session)
+         * @description Creates a new bash session and returns a session ID for subsequent run_in_session requests.
+         *     The session maintains shell state (e.g. working directory, environment) across multiple
+         *     code executions. Request body is optional; an empty body uses default options (no cwd override).
+         */
+        post: operations["createSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/session/{sessionId}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run code in bash session (run_in_session)
+         * @description Executes code in an existing bash session and streams the output in real-time via SSE
+         *     (Server-Sent Events). The session must have been created by create_session. Supports
+         *     optional working directory override and timeout (milliseconds).
+         */
+        post: operations["runInSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/session/{sessionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete bash session (delete_session)
+         * @description Deletes an existing bash session by ID. Terminates the underlying shell process
+         *     and releases resources. The session ID must have been returned by create_session.
+         */
+        delete: operations["deleteSession"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/command": {
         parameters: {
             query?: never;
@@ -472,6 +537,41 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description Request to create a bash session (optional body; empty treated as defaults) */
+        CreateSessionRequest: {
+            /**
+             * @description Working directory for the session (optional)
+             * @example /workspace
+             */
+            cwd?: string;
+        };
+        /** @description Response for create_session */
+        CreateSessionResponse: {
+            /**
+             * @description Unique session ID for run_in_session and delete_session
+             * @example session-abc123
+             */
+            session_id: string;
+        };
+        /** @description Request to run code in an existing bash session */
+        RunInSessionRequest: {
+            /**
+             * @description Shell code to execute in the session
+             * @example echo "Hello"
+             */
+            code: string;
+            /**
+             * @description Working directory override for this run (optional)
+             * @example /workspace
+             */
+            cwd?: string;
+            /**
+             * Format: int64
+             * @description Maximum execution time in milliseconds (optional; server may not enforce if omitted)
+             * @example 30000
+             */
+            timeout_ms?: number;
+        };
         /** @description Request to create a code execution context */
         CodeContextRequest: {
             /**
@@ -1066,6 +1166,91 @@ export interface operations {
                 content?: never;
             };
             400: components["responses"]["BadRequest"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    createSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CreateSessionRequest"];
+            };
+        };
+        responses: {
+            /** @description Session created successfully */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateSessionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    runInSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Session ID returned by create_session
+                 * @example session-abc123
+                 */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunInSessionRequest"];
+            };
+        };
+        responses: {
+            /** @description Stream of execution events */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["ServerStreamEvent"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    deleteSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Session ID to delete
+                 * @example session-abc123
+                 */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Session deleted successfully */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
             500: components["responses"]["InternalServerError"];
         };
     };
