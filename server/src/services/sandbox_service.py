@@ -29,6 +29,8 @@ from src.api.schema import (
     Endpoint,
     ListSandboxesRequest,
     ListSandboxesResponse,
+    NetworkPolicy,
+    NetworkRule,
     RenewSandboxExpirationRequest,
     RenewSandboxExpirationResponse,
     Sandbox,
@@ -220,5 +222,35 @@ class SandboxService(ABC):
 
         Raises:
             HTTPException: If sandbox not found or endpoint not available
+        """
+        pass
+
+    @abstractmethod
+    def get_egress_policy(self, sandbox_id: str) -> NetworkPolicy:
+        """
+        Get current egress policy of a sandbox.
+
+        Args:
+            sandbox_id: Unique sandbox identifier
+
+        Returns:
+            NetworkPolicy: Current egress policy
+
+        Raises:
+            HTTPException: If sandbox/egress policy not found or cannot be queried
+        """
+        pass
+
+    @abstractmethod
+    def patch_egress_rules(self, sandbox_id: str, rules: list[NetworkRule]) -> None:
+        """
+        Patch sandbox egress rules using sidecar merge semantics.
+
+        Args:
+            sandbox_id: Unique sandbox identifier
+            rules: Incoming patch egress rules
+
+        Raises:
+            HTTPException: If sandbox/egress policy not found or update fails
         """
         pass

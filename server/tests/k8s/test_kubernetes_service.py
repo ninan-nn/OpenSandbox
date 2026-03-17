@@ -17,13 +17,14 @@ Unit tests for KubernetesSandboxService.
 """
 
 import pytest
+import httpx
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 from fastapi import HTTPException
 
 from src.services.k8s.kubernetes_service import KubernetesSandboxService
 from src.services.constants import SANDBOX_MANUAL_CLEANUP_LABEL, SandboxErrorCodes
-from src.api.schema import ImageAuth, ListSandboxesRequest
+from src.api.schema import Endpoint, ImageAuth, ListSandboxesRequest, NetworkRule
 
 
 class TestKubernetesSandboxServiceInit:
@@ -601,3 +602,191 @@ class TestRenewExpiration:
         assert exc_info.value.status_code == 409
         assert "does not have automatic expiration" in exc_info.value.detail["message"]
         k8s_service.workload_provider.update_expiration.assert_not_called()
+
+
+class TestEgressPolicy:
+    """egress policy query/patch tests"""
+
+    @patch("src.services.k8s.kubernetes_service.httpx.request")
+    def test_get_egress_policy_success(self, mock_request, k8s_service):
+        workload = {
+            "spec": {
+                "template": {
+                    "spec": {
+                        "containers": [
+                            {"name": "egress", "image": "opensandbox/egress:latest"},
+                            {"name": "sandbox", "image": "python:3.11"},
+                        ]
+                    }
+                }
+            },
+            "status": {"podIP": "10.2.0.8"},
+        }
+        k8s_service.workload_provider.get_workload.return_value = workload
+        k8s_service.workload_provider.get_endpoint_info.return_value = Endpoint(
+            endpoint="10.2.0.8:18080"
+        )
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "status": "ok",
+            "policy": {
+                "defaultAction": "deny",
+                "egress": [{"action": "allow", "target": "pypi.org"}],
+            },
+        }
+        mock_request.return_value = mock_resp
+
+        policy = k8s_service.get_egress_policy("sandbox-1")
+
+        mock_request.assert_called_once_with(
+            method="GET",
+            url="http://10.2.0.8:18080/policy",
+            json=None,
+            timeout=5.0,
+        )
+        assert policy.default_action == "deny"
+        assert len(policy.egress) == 1
+        assert policy.egress[0].target == "pypi.org"
+
+    @patch("src.services.k8s.kubernetes_service.httpx.request")
+    def test_patch_egress_rules_uses_sidecar_patch_semantics(self, mock_request, k8s_service):
+        workload = {
+            "spec": {
+                "template": {
+                    "spec": {
+                        "containers": [
+                            {"name": "egress", "image": "opensandbox/egress:latest"},
+                            {"name": "sandbox", "image": "python:3.11"},
+                        ]
+                    }
+                }
+            },
+            "status": {"podIP": "10.2.0.9"},
+        }
+        k8s_service.workload_provider.get_workload.return_value = workload
+        k8s_service.workload_provider.get_endpoint_info.return_value = Endpoint(
+            endpoint="10.2.0.9:18080"
+        )
+
+        captured_patch_body = []
+
+        def request_side_effect(method, url, json=None, timeout=None):
+            resp = MagicMock()
+            resp.text = ""
+            if method == "PATCH":
+                captured_patch_body.extend(json or [])
+                resp.status_code = 200
+                return resp
+            raise AssertionError(f"unexpected method {method}")
+
+        mock_request.side_effect = request_side_effect
+
+        k8s_service.patch_egress_rules(
+            "sandbox-2",
+            [
+                NetworkRule(action="allow", target="example.com"),
+                NetworkRule(action="deny", target="EXAMPLE.com"),
+                NetworkRule(action="allow", target="pypi.org"),
+            ],
+        )
+
+        assert captured_patch_body == [
+            {"action": "allow", "target": "example.com"},
+            {"action": "deny", "target": "EXAMPLE.com"},
+            {"action": "allow", "target": "pypi.org"},
+        ]
+        assert mock_request.call_args_list[0].kwargs["url"] == "http://10.2.0.9:18080/policy"
+
+    def test_get_egress_policy_without_sidecar_returns_404(self, k8s_service):
+        workload = {
+            "spec": {
+                "template": {
+                    "spec": {
+                        "containers": [
+                            {"name": "sandbox", "image": "python:3.11"},
+                        ]
+                    }
+                }
+            },
+            "status": {"podIP": "10.2.0.10"},
+        }
+        k8s_service.workload_provider.get_workload.return_value = workload
+
+        with pytest.raises(HTTPException) as exc_info:
+            k8s_service.get_egress_policy("sandbox-3")
+
+        assert exc_info.value.status_code == 404
+        assert exc_info.value.detail["code"] == SandboxErrorCodes.EGRESS_POLICY_NOT_FOUND
+
+    @patch("src.services.k8s.kubernetes_service.httpx.request")
+    def test_get_egress_policy_uses_provider_endpoint_when_status_has_no_pod_ip(self, mock_request, k8s_service):
+        workload = {
+            "spec": {
+                "template": {
+                    "spec": {
+                        "containers": [
+                            {"name": "egress", "image": "opensandbox/egress:latest"},
+                            {"name": "sandbox", "image": "python:3.11"},
+                        ]
+                    }
+                }
+            },
+            "status": {},
+        }
+        k8s_service.workload_provider.get_workload.return_value = workload
+        k8s_service.workload_provider.get_endpoint_info.return_value = Endpoint(
+            endpoint="10.2.0.88:18080"
+        )
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "status": "ok",
+            "policy": {
+                "defaultAction": "deny",
+                "egress": [{"action": "allow", "target": "pypi.org"}],
+            },
+        }
+        mock_request.return_value = mock_resp
+
+        policy = k8s_service.get_egress_policy("sandbox-4")
+
+        mock_request.assert_called_once_with(
+            method="GET",
+            url="http://10.2.0.88:18080/policy",
+            json=None,
+            timeout=5.0,
+        )
+        assert policy.default_action == "deny"
+
+    @patch("src.services.k8s.kubernetes_service.httpx.request")
+    def test_patch_egress_rules_request_error_uses_update_failed_code(self, mock_request, k8s_service):
+        workload = {
+            "spec": {
+                "template": {
+                    "spec": {
+                        "containers": [
+                            {"name": "egress", "image": "opensandbox/egress:latest"},
+                            {"name": "sandbox", "image": "python:3.11"},
+                        ]
+                    }
+                }
+            },
+            "status": {"podIP": "10.2.0.9"},
+        }
+        k8s_service.workload_provider.get_workload.return_value = workload
+        k8s_service.workload_provider.get_endpoint_info.return_value = Endpoint(
+            endpoint="10.2.0.9:18080"
+        )
+        mock_request.side_effect = httpx.RequestError("network down")
+
+        with pytest.raises(HTTPException) as exc_info:
+            k8s_service.patch_egress_rules(
+                "sandbox-5",
+                [NetworkRule(action="allow", target="example.com")],
+            )
+
+        assert exc_info.value.status_code == 500
+        assert exc_info.value.detail["code"] == SandboxErrorCodes.EGRESS_POLICY_UPDATE_FAILED
