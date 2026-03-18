@@ -140,7 +140,7 @@ test("01b manual cleanup sandbox returns null expiresAt", async () => {
   }
 });
 
-test.skip("01a sandbox create with networkPolicy", async () => {
+test("01a sandbox create with networkPolicy", async () => {
   const connectionConfig = createConnectionConfig();
   const networkPolicySandbox = await Sandbox.create({
     connectionConfig,
