@@ -34,8 +34,6 @@ public sealed class SandboxManager : IAsyncDisposable
     private readonly ISandboxes _sandboxes;
     private readonly ConnectionConfig _connectionConfig;
     private readonly HttpClientProvider _httpClientProvider;
-    private readonly IAdapterFactory _adapterFactory;
-    private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
     private bool _disposed;
 
@@ -43,15 +41,12 @@ public sealed class SandboxManager : IAsyncDisposable
         ISandboxes sandboxes,
         ConnectionConfig connectionConfig,
         HttpClientProvider httpClientProvider,
-        IAdapterFactory adapterFactory,
         ILoggerFactory loggerFactory)
     {
         _sandboxes = sandboxes;
         _connectionConfig = connectionConfig;
         _httpClientProvider = httpClientProvider;
-        _adapterFactory = adapterFactory;
-        _loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
-        _logger = _loggerFactory.CreateLogger("OpenSandbox.SandboxManager");
+        _logger = (loggerFactory ?? NullLoggerFactory.Instance).CreateLogger("OpenSandbox.SandboxManager");
     }
 
     /// <summary>
@@ -80,7 +75,7 @@ public sealed class SandboxManager : IAsyncDisposable
                 LoggerFactory = loggerFactory
             });
 
-            return new SandboxManager(lifecycleStack.Sandboxes, connectionConfig, httpClientProvider, adapterFactory, loggerFactory);
+            return new SandboxManager(lifecycleStack.Sandboxes, connectionConfig, httpClientProvider, loggerFactory);
         }
         catch (Exception ex)
         {
@@ -169,67 +164,6 @@ public sealed class SandboxManager : IAsyncDisposable
     {
         _logger.LogInformation("Resuming sandbox: {SandboxId}", sandboxId);
         return _sandboxes.ResumeSandboxAsync(sandboxId, cancellationToken);
-    }
-
-    /// <summary>
-    /// Gets current egress policy for a sandbox.
-    /// </summary>
-    /// <param name="sandboxId">The sandbox ID.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The current egress policy.</returns>
-    public async Task<NetworkPolicy> GetEgressPolicyAsync(
-        string sandboxId,
-        CancellationToken cancellationToken = default)
-    {
-        _logger.LogDebug("Getting egress policy for sandbox: {SandboxId}", sandboxId);
-        var endpoint = await _sandboxes.GetSandboxEndpointAsync(
-            sandboxId,
-            Constants.DefaultEgressPort,
-            _connectionConfig.UseServerProxy,
-            cancellationToken).ConfigureAwait(false);
-        var protocol = _connectionConfig.Protocol == ConnectionProtocol.Https ? "https" : "http";
-        var egressBaseUrl = $"{protocol}://{endpoint.EndpointAddress}";
-        var egressHeaders = Sandbox.MergeHeaders(_connectionConfig.Headers, endpoint.Headers);
-
-        return await _adapterFactory.CreateEgressStack(new CreateEgressStackOptions
-        {
-            ConnectionConfig = _connectionConfig,
-            EgressBaseUrl = egressBaseUrl,
-            EgressHeaders = egressHeaders,
-            HttpClientProvider = _httpClientProvider,
-            LoggerFactory = _loggerFactory
-        }).Egress.GetPolicyAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Overwrites egress rules for a sandbox.
-    /// </summary>
-    /// <param name="sandboxId">The sandbox ID.</param>
-    /// <param name="rules">Patch egress rules payload.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    public async Task PatchEgressRulesAsync(
-        string sandboxId,
-        IReadOnlyList<NetworkRule> rules,
-        CancellationToken cancellationToken = default)
-    {
-        _logger.LogInformation("Patching egress rules for sandbox: {SandboxId}, count={RuleCount}", sandboxId, rules.Count);
-        var endpoint = await _sandboxes.GetSandboxEndpointAsync(
-            sandboxId,
-            Constants.DefaultEgressPort,
-            _connectionConfig.UseServerProxy,
-            cancellationToken).ConfigureAwait(false);
-        var protocol = _connectionConfig.Protocol == ConnectionProtocol.Https ? "https" : "http";
-        var egressBaseUrl = $"{protocol}://{endpoint.EndpointAddress}";
-        var egressHeaders = Sandbox.MergeHeaders(_connectionConfig.Headers, endpoint.Headers);
-
-        await _adapterFactory.CreateEgressStack(new CreateEgressStackOptions
-        {
-            ConnectionConfig = _connectionConfig,
-            EgressBaseUrl = egressBaseUrl,
-            EgressHeaders = egressHeaders,
-            HttpClientProvider = _httpClientProvider,
-            LoggerFactory = _loggerFactory
-        }).Egress.PatchRulesAsync(rules, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

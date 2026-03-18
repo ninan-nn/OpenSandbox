@@ -13,11 +13,10 @@
 // limitations under the License.
 
 import { ConnectionConfig, type ConnectionConfigOptions } from "./config/connection.js";
-import { DEFAULT_EGRESS_PORT } from "./core/constants.js";
 import { createDefaultAdapterFactory } from "./factory/defaultAdapterFactory.js";
 import type { AdapterFactory } from "./factory/adapterFactory.js";
 
-import type { ListSandboxesResponse, NetworkPolicy, NetworkRule, SandboxId, SandboxInfo } from "./models/sandboxes.js";
+import type { ListSandboxesResponse, SandboxId, SandboxInfo } from "./models/sandboxes.js";
 import type { Sandboxes } from "./services/sandboxes.js";
 
 export interface SandboxManagerOptions {
@@ -58,12 +57,10 @@ export interface SandboxFilter {
 export class SandboxManager {
   private readonly sandboxes: Sandboxes;
   private readonly connectionConfig: ConnectionConfig;
-  private readonly adapterFactory: AdapterFactory;
 
-  private constructor(opts: { sandboxes: Sandboxes; connectionConfig: ConnectionConfig; adapterFactory: AdapterFactory }) {
+  private constructor(opts: { sandboxes: Sandboxes; connectionConfig: ConnectionConfig }) {
     this.sandboxes = opts.sandboxes;
     this.connectionConfig = opts.connectionConfig;
-    this.adapterFactory = opts.adapterFactory;
   }
 
   static create(opts: SandboxManagerOptions = {}): SandboxManager {
@@ -83,7 +80,7 @@ export class SandboxManager {
       void connectionConfig.closeTransport().catch(() => undefined);
       throw err;
     }
-    return new SandboxManager({ sandboxes, connectionConfig, adapterFactory });
+    return new SandboxManager({ sandboxes, connectionConfig });
   }
 
   listSandboxInfos(filter: SandboxFilter = {}): Promise<ListSandboxesResponse> {
@@ -109,32 +106,6 @@ export class SandboxManager {
 
   resumeSandbox(sandboxId: SandboxId): Promise<void> {
     return this.sandboxes.resumeSandbox(sandboxId);
-  }
-
-  async getEgressPolicy(sandboxId: SandboxId): Promise<NetworkPolicy> {
-    const endpoint = await this.sandboxes.getSandboxEndpoint(
-      sandboxId,
-      DEFAULT_EGRESS_PORT,
-      this.connectionConfig.useServerProxy,
-    );
-    return this.adapterFactory.createEgressStack({
-      connectionConfig: this.connectionConfig,
-      egressBaseUrl: `${this.connectionConfig.protocol}://${endpoint.endpoint}`,
-      endpointHeaders: endpoint.headers,
-    }).egress.getPolicy();
-  }
-
-  async patchEgressRules(sandboxId: SandboxId, rules: NetworkRule[]): Promise<void> {
-    const endpoint = await this.sandboxes.getSandboxEndpoint(
-      sandboxId,
-      DEFAULT_EGRESS_PORT,
-      this.connectionConfig.useServerProxy,
-    );
-    await this.adapterFactory.createEgressStack({
-      connectionConfig: this.connectionConfig,
-      egressBaseUrl: `${this.connectionConfig.protocol}://${endpoint.endpoint}`,
-      endpointHeaders: endpoint.headers,
-    }).egress.patchRules(rules);
   }
 
   /**

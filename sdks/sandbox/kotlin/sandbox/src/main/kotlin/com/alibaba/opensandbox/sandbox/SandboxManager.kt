@@ -19,9 +19,6 @@ package com.alibaba.opensandbox.sandbox
 import com.alibaba.opensandbox.sandbox.config.ConnectionConfig
 import com.alibaba.opensandbox.sandbox.domain.exceptions.InvalidArgumentException
 import com.alibaba.opensandbox.sandbox.domain.exceptions.SandboxException
-import com.alibaba.opensandbox.sandbox.domain.models.execd.DEFAULT_EGRESS_PORT
-import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.NetworkPolicy
-import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.NetworkRule
 import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.PagedSandboxInfos
 import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.SandboxFilter
 import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.SandboxInfo
@@ -161,41 +158,6 @@ class SandboxManager internal constructor(
     fun resumeSandbox(sandboxId: String) {
         logger.info("Resuming sandbox: {}", sandboxId)
         sandboxService.resumeSandbox(sandboxId)
-    }
-
-    /**
-     * Gets current egress policy for a sandbox.
-     *
-     * @param sandboxId Sandbox ID
-     * @return Current egress policy
-     */
-    fun getEgressPolicy(sandboxId: String): NetworkPolicy {
-        val endpoint =
-            sandboxService.getSandboxEndpoint(
-                sandboxId,
-                DEFAULT_EGRESS_PORT,
-                httpClientProvider.config.useServerProxy,
-            )
-        return AdapterFactory(httpClientProvider).createEgress(endpoint).getPolicy()
-    }
-
-    /**
-     * Overwrites egress rules for a sandbox.
-     *
-     * @param sandboxId Sandbox ID
-     * @param rules Egress rules patch payload
-     */
-    fun patchEgressRules(
-        sandboxId: String,
-        rules: List<NetworkRule>,
-    ) {
-        val endpoint =
-            sandboxService.getSandboxEndpoint(
-                sandboxId,
-                DEFAULT_EGRESS_PORT,
-                httpClientProvider.config.useServerProxy,
-            )
-        AdapterFactory(httpClientProvider).createEgress(endpoint).patchRules(rules)
     }
 
     /**

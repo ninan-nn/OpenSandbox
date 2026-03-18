@@ -22,10 +22,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from opensandbox.config.connection_sync import ConnectionConfigSync
-from opensandbox.constants import DEFAULT_EGRESS_PORT
 from opensandbox.models.sandboxes import (
-    NetworkPolicy,
-    NetworkRule,
     PagedSandboxInfos,
     SandboxFilter,
     SandboxInfo,
@@ -185,26 +182,6 @@ class SandboxManagerSync:
         """
         logger.info("Resuming sandbox: %s", sandbox_id)
         self._sandbox_service.resume_sandbox(sandbox_id)
-
-    def get_egress_policy(self, sandbox_id: str) -> NetworkPolicy:
-        """
-        Get current egress policy for a sandbox.
-        """
-        factory = AdapterFactorySync(self._connection_config)
-        endpoint = self._sandbox_service.get_sandbox_endpoint(
-            sandbox_id, DEFAULT_EGRESS_PORT, self._connection_config.use_server_proxy
-        )
-        return factory.create_egress_service(endpoint).get_policy()
-
-    def patch_egress_rules(self, sandbox_id: str, rules: list[NetworkRule]) -> None:
-        """
-        Overwrite egress rules for a sandbox.
-        """
-        factory = AdapterFactorySync(self._connection_config)
-        endpoint = self._sandbox_service.get_sandbox_endpoint(
-            sandbox_id, DEFAULT_EGRESS_PORT, self._connection_config.use_server_proxy
-        )
-        factory.create_egress_service(endpoint).patch_rules(rules)
 
     def close(self) -> None:
         """
