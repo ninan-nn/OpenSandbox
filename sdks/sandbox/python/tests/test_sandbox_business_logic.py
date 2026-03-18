@@ -22,15 +22,21 @@ import pytest
 
 from opensandbox.config import ConnectionConfig
 from opensandbox.exceptions import SandboxReadyTimeoutException
+from opensandbox.models.sandboxes import NetworkPolicy, NetworkRule, SandboxEndpoint
 from opensandbox.sandbox import Sandbox
 
 
 class _SandboxServiceStub:
     def __init__(self) -> None:
         self.renew_calls: list[tuple[object, datetime]] = []
+        self.endpoint_calls: list[tuple[object, int, bool]] = []
 
     async def renew_sandbox_expiration(self, sandbox_id, expires_at: datetime) -> None:
         self.renew_calls.append((sandbox_id, expires_at))
+
+    async def get_sandbox_endpoint(self, sandbox_id, port: int, use_server_proxy: bool = False) -> SandboxEndpoint:
+        self.endpoint_calls.append((sandbox_id, port, use_server_proxy))
+        return SandboxEndpoint(endpoint=f"sbx.internal:{port}", headers={"X-Egress": "1"})
 
 
 class _HealthServiceStub:
@@ -47,6 +53,20 @@ class _HealthServiceStub:
 
 class _Noop:
     pass
+
+
+class _EgressServiceStub:
+    def __init__(self) -> None:
+        self.patch_calls: list[list[NetworkRule]] = []
+
+    async def get_policy(self) -> NetworkPolicy:
+        return NetworkPolicy(
+            defaultAction="deny",
+            egress=[NetworkRule(action="allow", target="pypi.org")],
+        )
+
+    async def patch_rules(self, rules: list[NetworkRule]) -> None:
+        self.patch_calls.append(rules)
 
 
 def _make_sandbox(
@@ -152,3 +172,67 @@ async def test_renew_passes_timezone_aware_utc_datetime() -> None:
     _, expires_at = svc.renew_calls[0]
     assert expires_at.tzinfo is timezone.utc
     assert before <= expires_at <= after + timedelta(seconds=12)
+
+
+@pytest.mark.asyncio
+async def test_get_egress_policy_uses_endpoint_and_direct_egress_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    svc = _SandboxServiceStub()
+    egress_service = _EgressServiceStub()
+    factory_calls: list[SandboxEndpoint] = []
+
+    class _FactoryStub:
+        def __init__(self, connection_config: ConnectionConfig) -> None:
+            assert connection_config.use_server_proxy is True
+
+        def create_egress_service(self, endpoint: SandboxEndpoint) -> _EgressServiceStub:
+            factory_calls.append(endpoint)
+            return egress_service
+
+    monkeypatch.setattr("opensandbox.sandbox.AdapterFactory", _FactoryStub)
+
+    sbx = _make_sandbox(
+        health_service=_HealthServiceStub(),
+        sandbox_service=svc,
+        connection_config=ConnectionConfig(use_server_proxy=True),
+    )
+
+    policy = await sbx.get_egress_policy()
+
+    assert svc.endpoint_calls == [(sbx.id, 18080, True)]
+    assert factory_calls == [SandboxEndpoint(endpoint="sbx.internal:18080", headers={"X-Egress": "1"})]
+    assert policy.default_action == "deny"
+    assert policy.egress is not None
+    assert policy.egress[0].target == "pypi.org"
+
+
+@pytest.mark.asyncio
+async def test_patch_egress_rules_uses_endpoint_and_direct_egress_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    svc = _SandboxServiceStub()
+    egress_service = _EgressServiceStub()
+
+    class _FactoryStub:
+        def __init__(self, connection_config: ConnectionConfig) -> None:
+            assert connection_config.use_server_proxy is False
+
+        def create_egress_service(self, endpoint: SandboxEndpoint) -> _EgressServiceStub:
+            assert endpoint.endpoint == "sbx.internal:18080"
+            assert endpoint.headers == {"X-Egress": "1"}
+            return egress_service
+
+    monkeypatch.setattr("opensandbox.sandbox.AdapterFactory", _FactoryStub)
+
+    sbx = _make_sandbox(
+        health_service=_HealthServiceStub(),
+        sandbox_service=svc,
+        connection_config=ConnectionConfig(use_server_proxy=False),
+    )
+    rules = [NetworkRule(action="allow", target="www.github.com")]
+
+    await sbx.patch_egress_rules(rules)
+
+    assert svc.endpoint_calls == [(sbx.id, 18080, False)]
+    assert egress_service.patch_calls == [rules]

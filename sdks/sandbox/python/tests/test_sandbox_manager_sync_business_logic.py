@@ -19,110 +19,103 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import httpx
-import pytest
 
-from opensandbox.config import ConnectionConfig
-from opensandbox.manager import SandboxManager
+from opensandbox.config.connection_sync import ConnectionConfigSync
 from opensandbox.models.sandboxes import NetworkPolicy, NetworkRule, SandboxEndpoint
+from opensandbox.sync.manager import SandboxManagerSync
 
 
 class _SandboxServiceStub:
     def __init__(self) -> None:
         self.renew_calls: list[tuple[object, datetime]] = []
-        self.pause_calls: list[object] = []
         self.endpoint_calls: list[tuple[object, int, bool]] = []
 
-    async def list_sandboxes(self, _filter):  # pragma: no cover
+    def list_sandboxes(self, _filter):  # pragma: no cover
         raise RuntimeError("not used")
 
-    async def get_sandbox_info(self, _sandbox_id):  # pragma: no cover
+    def get_sandbox_info(self, _sandbox_id):  # pragma: no cover
         raise RuntimeError("not used")
 
-    async def kill_sandbox(self, _sandbox_id):  # pragma: no cover
+    def kill_sandbox(self, _sandbox_id):  # pragma: no cover
         raise RuntimeError("not used")
 
-    async def renew_sandbox_expiration(self, sandbox_id, new_expiration_time: datetime) -> None:
+    def renew_sandbox_expiration(self, sandbox_id, new_expiration_time: datetime) -> None:
         self.renew_calls.append((sandbox_id, new_expiration_time))
 
-    async def pause_sandbox(self, sandbox_id) -> None:
-        self.pause_calls.append(sandbox_id)
-
-    async def resume_sandbox(self, _sandbox_id):  # pragma: no cover
+    def pause_sandbox(self, _sandbox_id) -> None:  # pragma: no cover
         raise RuntimeError("not used")
 
-    async def get_sandbox_endpoint(self, sandbox_id, port: int, use_server_proxy: bool = False) -> SandboxEndpoint:
+    def resume_sandbox(self, _sandbox_id):  # pragma: no cover
+        raise RuntimeError("not used")
+
+    def get_sandbox_endpoint(self, sandbox_id, port: int, use_server_proxy: bool = False) -> SandboxEndpoint:
         self.endpoint_calls.append((sandbox_id, port, use_server_proxy))
-        return SandboxEndpoint(endpoint=f"manager-egress:{port}", headers={"X-Egress": "1"})
+        return SandboxEndpoint(endpoint=f"sync-manager-egress:{port}", headers={"X-Egress": "1"})
 
 
 class _EgressServiceStub:
     def __init__(self) -> None:
         self.patch_calls: list[list[NetworkRule]] = []
 
-    async def get_policy(self) -> NetworkPolicy:
+    def get_policy(self) -> NetworkPolicy:
         return NetworkPolicy(
             defaultAction="deny",
             egress=[NetworkRule(action="allow", target="pypi.org")],
         )
 
-    async def patch_rules(self, rules: list[NetworkRule]) -> None:
+    def patch_rules(self, rules: list[NetworkRule]) -> None:
         self.patch_calls.append(rules)
 
 
-@pytest.mark.asyncio
-async def test_manager_renew_uses_utc_datetime() -> None:
+def test_sync_manager_renew_uses_utc_datetime() -> None:
     svc = _SandboxServiceStub()
-    mgr = SandboxManager(svc, ConnectionConfig())
+    mgr = SandboxManagerSync(svc, ConnectionConfigSync())
 
     sid = str(uuid4())
-    await mgr.renew_sandbox(sid, timedelta(seconds=5))
+    mgr.renew_sandbox(sid, timedelta(seconds=5))
 
     assert len(svc.renew_calls) == 1
     _, dt = svc.renew_calls[0]
     assert dt.tzinfo is timezone.utc
 
 
-@pytest.mark.asyncio
-async def test_manager_close_does_not_close_user_transport() -> None:
-    class CustomTransport(httpx.AsyncBaseTransport):
+def test_sync_manager_close_does_not_close_user_transport() -> None:
+    class CustomTransport(httpx.BaseTransport):
         def __init__(self) -> None:
             self.closed = False
 
-        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:  # pragma: no cover
+        def handle_request(self, request: httpx.Request) -> httpx.Response:  # pragma: no cover
             raise RuntimeError("not used")
 
-        async def aclose(self) -> None:
+        def close(self) -> None:
             self.closed = True
 
     t = CustomTransport()
-    cfg = ConnectionConfig(transport=t)
+    cfg = ConnectionConfigSync(transport=t)
 
-    mgr = SandboxManager(_SandboxServiceStub(), cfg)
-    await mgr.close()
+    mgr = SandboxManagerSync(_SandboxServiceStub(), cfg)
+    mgr.close()
     assert t.closed is False
 
 
-@pytest.mark.asyncio
-async def test_manager_get_egress_policy_uses_endpoint_and_direct_egress_service(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_sync_manager_get_egress_policy_uses_endpoint_and_direct_egress_service(monkeypatch) -> None:
     svc = _SandboxServiceStub()
     egress_service = _EgressServiceStub()
 
     class _FactoryStub:
-        def __init__(self, connection_config: ConnectionConfig) -> None:
+        def __init__(self, connection_config: ConnectionConfigSync) -> None:
             assert connection_config.use_server_proxy is True
 
         def create_egress_service(self, endpoint: SandboxEndpoint) -> _EgressServiceStub:
-            assert endpoint.endpoint == "manager-egress:18080"
+            assert endpoint.endpoint == "sync-manager-egress:18080"
             assert endpoint.headers == {"X-Egress": "1"}
             return egress_service
 
-    monkeypatch.setattr("opensandbox.manager.AdapterFactory", _FactoryStub)
+    monkeypatch.setattr("opensandbox.sync.manager.AdapterFactorySync", _FactoryStub)
 
-    mgr = SandboxManager(svc, ConnectionConfig(use_server_proxy=True))
+    mgr = SandboxManagerSync(svc, ConnectionConfigSync(use_server_proxy=True))
     sid = str(uuid4())
-    policy = await mgr.get_egress_policy(sid)
+    policy = mgr.get_egress_policy(sid)
 
     assert svc.endpoint_calls == [(sid, 18080, True)]
     assert policy.default_action == "deny"
@@ -130,28 +123,25 @@ async def test_manager_get_egress_policy_uses_endpoint_and_direct_egress_service
     assert policy.egress[0].target == "pypi.org"
 
 
-@pytest.mark.asyncio
-async def test_manager_patch_egress_rules_uses_endpoint_and_direct_egress_service(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_sync_manager_patch_egress_rules_uses_endpoint_and_direct_egress_service(monkeypatch) -> None:
     svc = _SandboxServiceStub()
     egress_service = _EgressServiceStub()
 
     class _FactoryStub:
-        def __init__(self, connection_config: ConnectionConfig) -> None:
+        def __init__(self, connection_config: ConnectionConfigSync) -> None:
             assert connection_config.use_server_proxy is False
 
         def create_egress_service(self, endpoint: SandboxEndpoint) -> _EgressServiceStub:
-            assert endpoint.endpoint == "manager-egress:18080"
+            assert endpoint.endpoint == "sync-manager-egress:18080"
             return egress_service
 
-    monkeypatch.setattr("opensandbox.manager.AdapterFactory", _FactoryStub)
+    monkeypatch.setattr("opensandbox.sync.manager.AdapterFactorySync", _FactoryStub)
 
-    mgr = SandboxManager(svc, ConnectionConfig(use_server_proxy=False))
+    mgr = SandboxManagerSync(svc, ConnectionConfigSync(use_server_proxy=False))
     sid = str(uuid4())
     rules = [NetworkRule(action="deny", target="pypi.org")]
 
-    await mgr.patch_egress_rules(sid, rules)
+    mgr.patch_egress_rules(sid, rules)
 
     assert svc.endpoint_calls == [(sid, 18080, False)]
     assert egress_service.patch_calls == [rules]
