@@ -274,79 +274,6 @@ paths:
           $ref: '#/components/responses/Conflict'
         '500':
           $ref: '#/components/responses/InternalServerError'
-  /sandboxes/{sandboxId}/egress:
-    patch:
-      tags: [Sandboxes]
-      summary: Patch new egress rules for a sandbox
-      description: |
-        Update egress rules for the sandbox synchronously.
-
-        This endpoint uses merge semantics aligned with the egress sidecar `/policy` PATCH behavior:
-        - Existing rules remain unless overridden by incoming rules.
-        - Incoming rules are applied with higher priority than existing rules.
-        - If multiple incoming rules refer to the same `target`, the first one wins.
-      parameters:
-        - $ref: '#/components/parameters/SandboxId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: array
-              minItems: 1
-              items:
-                $ref: '#/components/schemas/NetworkRule'
-            examples:
-              duplicate-target-first-wins:
-                summary: First rule wins for duplicate target within the same patch payload
-                value:
-                  - action: allow
-                    target: "example.com"
-                  - action: deny
-                    target: "example.com"
-      responses:
-        '200':
-          description: |
-            Egress rules patch completed successfully.
-            Rules are merged with existing policy in sidecar PATCH semantics.
-            Existing unmatched rules are retained; duplicate targets in payload use first-wins.
-          headers:
-            X-Request-ID:
-              $ref: '#/components/headers/XRequestId'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-    get:
-      tags: [Sandboxes]
-      summary: Get existed egress rules for a sandbox
-      description: Retrieve current egress policy for the sandbox.
-      parameters:
-        - $ref: '#/components/parameters/SandboxId'
-      responses:
-        '200':
-          description: Current egress policy returned successfully.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/NetworkPolicy'
-          headers:
-            X-Request-ID:
-              $ref: '#/components/headers/XRequestId'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
   /sandboxes/{sandboxId}/resume:
     post:
       tags: [Sandboxes]
@@ -1101,4 +1028,3 @@ components:
           description: OSS access key secret for inline credentials mode.
           minLength: 1
       additionalProperties: false
-
