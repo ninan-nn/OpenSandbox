@@ -301,3 +301,19 @@ Sandbox sandbox = Sandbox.builder()
     )
     .build();
 ```
+
+### 3. Runtime Egress Policy Updates
+
+Runtime egress reads and patches go directly to the sandbox egress sidecar.
+The SDK first resolves the sandbox endpoint on port `18080`, then calls the sidecar `/policy` API.
+
+```java
+NetworkPolicy policy = sandbox.getEgressPolicy();
+
+sandbox.patchEgressRules(
+    List.of(
+        NetworkRule.builder().action(NetworkRule.Action.ALLOW).target("www.github.com").build(),
+        NetworkRule.builder().action(NetworkRule.Action.DENY).target("pypi.org").build()
+    )
+);
+```

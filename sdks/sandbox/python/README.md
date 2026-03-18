@@ -331,3 +331,19 @@ sandbox = await Sandbox.create(
     ),
 )
 ```
+
+### 3. Runtime Egress Policy Updates
+
+Runtime egress policy reads and patches are sent directly to the sandbox egress sidecar.
+The SDK first resolves the sandbox endpoint on port `18080`, then calls the sidecar `/policy` API.
+
+```python
+policy = await sandbox.get_egress_policy()
+
+await sandbox.patch_egress_rules(
+    [
+        NetworkRule(action="allow", target="www.github.com"),
+        NetworkRule(action="deny", target="pypi.org"),
+    ]
+)
+```
