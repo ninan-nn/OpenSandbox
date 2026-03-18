@@ -33,8 +33,6 @@ from src.api.schema import (
     ErrorResponse,
     ListSandboxesRequest,
     ListSandboxesResponse,
-    NetworkPolicy,
-    NetworkRule,
     PaginationRequest,
     RenewSandboxExpirationRequest,
     RenewSandboxExpirationResponse,
@@ -247,52 +245,6 @@ async def delete_sandbox(
 # ============================================================================
 # Sandbox Lifecycle Operations
 # ============================================================================
-
-@router.get(
-    "/sandboxes/{sandbox_id}/egress",
-    response_model=NetworkPolicy,
-    response_model_exclude_none=True,
-    responses={
-        200: {"description": "Current egress policy returned successfully"},
-        401: {"model": ErrorResponse, "description": "Authentication credentials are missing or invalid"},
-        403: {"model": ErrorResponse, "description": "The authenticated user lacks permission for this operation"},
-        404: {"model": ErrorResponse, "description": "The requested resource does not exist"},
-        500: {"model": ErrorResponse, "description": "An unexpected server error occurred"},
-    },
-)
-async def get_sandbox_egress(
-    sandbox_id: str,
-    x_request_id: Optional[str] = Header(None, alias="X-Request-ID", description="Unique request identifier for tracing"),
-) -> NetworkPolicy:
-    """
-    Get current egress policy for a sandbox.
-    """
-    return sandbox_service.get_egress_policy(sandbox_id)
-
-
-@router.patch(
-    "/sandboxes/{sandbox_id}/egress",
-    status_code=status.HTTP_200_OK,
-    responses={
-        200: {"description": "Egress rules patch completed successfully"},
-        400: {"model": ErrorResponse, "description": "The request was invalid or malformed"},
-        401: {"model": ErrorResponse, "description": "Authentication credentials are missing or invalid"},
-        403: {"model": ErrorResponse, "description": "The authenticated user lacks permission for this operation"},
-        404: {"model": ErrorResponse, "description": "The requested resource does not exist"},
-        500: {"model": ErrorResponse, "description": "An unexpected server error occurred"},
-    },
-)
-async def patch_sandbox_egress(
-    sandbox_id: str,
-    rules: List[NetworkRule],
-    x_request_id: Optional[str] = Header(None, alias="X-Request-ID", description="Unique request identifier for tracing"),
-) -> Response:
-    """
-    Patch sandbox egress rules using sidecar merge semantics.
-    """
-    sandbox_service.patch_egress_rules(sandbox_id, rules)
-    return Response(status_code=status.HTTP_200_OK)
-
 
 @router.post(
     "/sandboxes/{sandbox_id}/pause",

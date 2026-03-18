@@ -24,7 +24,6 @@ import time
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
-import httpx
 from fastapi import HTTPException, status
 
 from src.api.schema import (
@@ -34,8 +33,6 @@ from src.api.schema import (
     ImageSpec,
     ListSandboxesRequest,
     ListSandboxesResponse,
-    NetworkPolicy,
-    NetworkRule,
     PaginationInfo,
     RenewSandboxExpirationRequest,
     RenewSandboxExpirationResponse,
@@ -44,7 +41,6 @@ from src.api.schema import (
 )
 from src.config import AppConfig, get_config
 from src.services.constants import (
-    EGRESS_POLICY_API_PORT,
     SANDBOX_ID_LABEL,
     SANDBOX_MANUAL_CLEANUP_LABEL,
     SandboxErrorCodes,
@@ -58,7 +54,6 @@ from src.services.validators import (
     ensure_future_expiration,
     ensure_metadata_labels,
     ensure_timeout_within_limit,
-    ensure_non_empty_egress_patch,
     ensure_volumes_valid,
 )
 from src.services.k8s.client import K8sClient
@@ -709,174 +704,7 @@ class KubernetesSandboxService(SandboxService):
                     "message": f"Failed to get endpoint: {str(e)}",
                 },
             ) from e
-
-    def get_egress_policy(self, sandbox_id: str) -> NetworkPolicy:
-        """
-        Get current egress policy from sidecar policy API in the sandbox Pod.
-        """
-        workload = self.workload_provider.get_workload(
-            sandbox_id=sandbox_id,
-            namespace=self.namespace,
-        )
-        if not workload:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={
-                    "code": SandboxErrorCodes.K8S_SANDBOX_NOT_FOUND,
-                    "message": f"Sandbox '{sandbox_id}' not found",
-                },
-            )
-        if not self._has_egress_sidecar(workload):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={
-                    "code": SandboxErrorCodes.EGRESS_POLICY_NOT_FOUND,
-                    "message": f"Egress sidecar for sandbox '{sandbox_id}' not found",
-                },
-            )
-
-        response = self._request_egress_policy_api(workload, sandbox_id, method="GET")
-        if response.status_code != status.HTTP_200_OK:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={
-                    "code": SandboxErrorCodes.EGRESS_POLICY_QUERY_FAILED,
-                    "message": (
-                        f"Failed to query egress policy for sandbox {sandbox_id}: "
-                        f"status={response.status_code}, body={response.text}"
-                    ),
-                },
-            )
-        payload = response.json()
-        policy_payload = payload.get("policy") if isinstance(payload, dict) else None
-        if not isinstance(policy_payload, dict):
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={
-                    "code": SandboxErrorCodes.EGRESS_POLICY_QUERY_FAILED,
-                    "message": "Egress sidecar returned an invalid policy payload.",
-                },
-            )
-        return NetworkPolicy.model_validate(policy_payload)
-
-    def patch_egress_rules(self, sandbox_id: str, rules: list[NetworkRule]) -> None:
-        """
-        Patch sandbox egress rules using sidecar merge semantics.
-        """
-        ensure_non_empty_egress_patch(rules)
-
-        workload = self.workload_provider.get_workload(
-            sandbox_id=sandbox_id,
-            namespace=self.namespace,
-        )
-        if not workload:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={
-                    "code": SandboxErrorCodes.K8S_SANDBOX_NOT_FOUND,
-                    "message": f"Sandbox '{sandbox_id}' not found",
-                },
-            )
-        if not self._has_egress_sidecar(workload):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={
-                    "code": SandboxErrorCodes.EGRESS_POLICY_NOT_FOUND,
-                    "message": f"Egress sidecar for sandbox '{sandbox_id}' not found",
-                },
-            )
-
-        response = self._request_egress_policy_api(
-            workload,
-            sandbox_id,
-            method="PATCH",
-            body=[rule.model_dump(by_alias=True, exclude_none=True) for rule in rules],
-            error_code=SandboxErrorCodes.EGRESS_POLICY_UPDATE_FAILED,
-        )
-        if response.status_code < 200 or response.status_code >= 300:
-            status_code = (
-                status.HTTP_400_BAD_REQUEST
-                if response.status_code == status.HTTP_400_BAD_REQUEST
-                else status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-            raise HTTPException(
-                status_code=status_code,
-                detail={
-                    "code": SandboxErrorCodes.EGRESS_POLICY_UPDATE_FAILED,
-                    "message": (
-                        f"Failed to update egress policy for sandbox {sandbox_id}: "
-                        f"status={response.status_code}, body={response.text}"
-                    ),
-                },
-            )
-
-    def _request_egress_policy_api(
-        self,
-        workload: Any,
-        sandbox_id: str,
-        method: str,
-        body: Optional[Any] = None,
-        error_code: str = SandboxErrorCodes.EGRESS_POLICY_QUERY_FAILED,
-    ) -> httpx.Response:
-        """
-        Send request to sidecar policy API via workload-resolved endpoint.
-        """
-        endpoint = self._resolve_egress_policy_endpoint(workload, sandbox_id)
-        url = f"http://{endpoint}/policy"
-        try:
-            return httpx.request(
-                method=method,
-                url=url,
-                json=body,
-                timeout=5.0,
-            )
-        except httpx.RequestError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={
-                    "code": error_code,
-                    "message": f"Failed to reach egress sidecar for sandbox {sandbox_id}: {str(exc)}",
-                },
-            ) from exc
-
-    def _resolve_egress_policy_endpoint(self, workload: Any, sandbox_id: str) -> str:
-        """
-        Resolve sidecar policy endpoint for workload (host:port).
-        """
-        endpoint = self.workload_provider.get_endpoint_info(
-            workload,
-            EGRESS_POLICY_API_PORT,
-            sandbox_id,
-        )
-        if endpoint and endpoint.endpoint:
-            return endpoint.endpoint
-
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "code": SandboxErrorCodes.K8S_POD_IP_NOT_AVAILABLE,
-                "message": f"Pod IP is not available for sandbox '{sandbox_id}'.",
-            },
-        )
-
-    @staticmethod
-    def _has_egress_sidecar(workload: Any) -> bool:
-        """
-        Check whether workload Pod spec includes egress sidecar container.
-        """
-        if isinstance(workload, dict):
-            template = workload.get("spec", {}).get("template") or workload.get("spec", {}).get("podTemplate") or {}
-            pod_spec = template.get("spec", {}) if template else {}
-            containers = pod_spec.get("containers", []) or []
-            return any((c.get("name") == "egress") for c in containers if isinstance(c, dict))
-
-        spec_obj = getattr(workload, "spec", None)
-        containers = getattr(spec_obj, "containers", None) or []
-        for container in containers:
-            if getattr(container, "name", "") == "egress":
-                return True
-        return False
-
+    
     def _build_sandbox_from_workload(self, workload: Any) -> Sandbox:
         """
         Build Sandbox object from Kubernetes workload.

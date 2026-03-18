@@ -24,7 +24,6 @@ SANDBOX_EMBEDDING_PROXY_PORT_LABEL = "opensandbox.io/embedding-proxy-port"  # ma
 SANDBOX_HTTP_PORT_LABEL = "opensandbox.io/http-port"  # maps container 8080 -> host port
 SANDBOX_OSSFS_MOUNTS_LABEL = "opensandbox.io/ossfs-mounts"
 OPEN_SANDBOX_INGRESS_HEADER = "OpenSandbox-Ingress-To"
-EGRESS_POLICY_API_PORT = 18080
 
 class SandboxErrorCodes:
     """Canonical error codes for sandbox service operations."""
@@ -62,9 +61,6 @@ class SandboxErrorCodes:
     API_NOT_SUPPORTED = "SANDBOX::API_NOT_SUPPORTED"
     INVALID_METADATA_LABEL = "SANDBOX::INVALID_METADATA_LABEL"
     INVALID_PARAMETER = "SANDBOX::INVALID_PARAMETER"
-    EGRESS_POLICY_NOT_FOUND = "SANDBOX::EGRESS_POLICY_NOT_FOUND"
-    EGRESS_POLICY_QUERY_FAILED = "SANDBOX::EGRESS_POLICY_QUERY_FAILED"
-    EGRESS_POLICY_UPDATE_FAILED = "SANDBOX::EGRESS_POLICY_UPDATE_FAILED"
 
     # Volume error codes
     INVALID_VOLUME_NAME = "VOLUME::INVALID_NAME"
@@ -101,6 +97,5 @@ __all__ = [
     "SANDBOX_HTTP_PORT_LABEL",
     "SANDBOX_OSSFS_MOUNTS_LABEL",
     "OPEN_SANDBOX_INGRESS_HEADER",
-    "EGRESS_POLICY_API_PORT",
     "SandboxErrorCodes",
 ]

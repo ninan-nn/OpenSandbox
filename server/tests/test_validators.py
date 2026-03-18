@@ -15,12 +15,11 @@
 import pytest
 from fastapi import HTTPException
 
-from src.api.schema import Host, NetworkRule, OSSFS, PVC, Volume
+from src.api.schema import Host, OSSFS, PVC, Volume
 from src.services.constants import SandboxErrorCodes
 from src.services.validators import (
     ensure_metadata_labels,
     ensure_timeout_within_limit,
-    ensure_non_empty_egress_patch,
     ensure_valid_host_path,
     ensure_valid_mount_path,
     ensure_valid_pvc_name,
@@ -163,17 +162,6 @@ def test_ensure_timeout_within_limit_rejects_unrepresentable_timeout():
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail["code"] == SandboxErrorCodes.INVALID_PARAMETER
     assert "too large" in exc_info.value.detail["message"]
-
-
-def test_ensure_non_empty_egress_patch_accepts_non_empty_rules():
-    ensure_non_empty_egress_patch([NetworkRule(action="allow", target="example.com")])
-
-
-def test_ensure_non_empty_egress_patch_rejects_empty_rules():
-    with pytest.raises(HTTPException) as exc_info:
-        ensure_non_empty_egress_patch([])
-    assert exc_info.value.status_code == 400
-    assert exc_info.value.detail["code"] == SandboxErrorCodes.INVALID_PARAMETER
 
 
 # ============================================================================

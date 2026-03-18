@@ -31,7 +31,7 @@ import re
 from src.services.constants import RESERVED_LABEL_PREFIX, SandboxErrorCodes
 
 if TYPE_CHECKING:
-    from src.api.schema import NetworkPolicy, NetworkRule, OSSFS, Volume
+    from src.api.schema import NetworkPolicy, OSSFS, Volume
     from src.config import EgressConfig
 
 
@@ -548,24 +548,6 @@ def ensure_egress_configured(
         )
 
 
-def ensure_non_empty_egress_patch(rules: Sequence["NetworkRule"]) -> None:
-    """
-    Validate patch egress payload contains at least one rule.
-
-    Raises:
-        HTTPException: When patch payload is empty.
-    """
-    if len(rules) > 0:
-        return
-    raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail={
-            "code": SandboxErrorCodes.INVALID_PARAMETER,
-            "message": "patch must include at least one egress rule.",
-        },
-    )
-
-
 def ensure_volumes_valid(
     volumes: Optional[List["Volume"]],
     allowed_host_prefixes: Optional[List[str]] = None,
@@ -660,7 +642,6 @@ __all__ = [
     "ensure_valid_port",
     "ensure_metadata_labels",
     "ensure_egress_configured",
-    "ensure_non_empty_egress_patch",
     "ensure_valid_volume_name",
     "ensure_valid_mount_path",
     "ensure_valid_sub_path",
