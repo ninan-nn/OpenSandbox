@@ -59,6 +59,7 @@ from src.api.schema import (
 )
 from src.config import AppConfig, get_config
 from src.services.constants import (
+    SANDBOX_EGRESS_AUTH_TOKEN_METADATA_KEY,
     SANDBOX_EMBEDDING_PROXY_PORT_LABEL,
     SANDBOX_EXPIRES_AT_LABEL,
     SANDBOX_HTTP_PORT_LABEL,
@@ -66,6 +67,11 @@ from src.services.constants import (
     SANDBOX_MANUAL_CLEANUP_LABEL,
     SANDBOX_OSSFS_MOUNTS_LABEL,
     SandboxErrorCodes,
+)
+from src.services.endpoint_auth import (
+    build_egress_auth_headers,
+    generate_egress_token,
+    merge_endpoint_headers,
 )
 from src.services.helpers import (
     matches_filter,
@@ -949,6 +955,7 @@ class DockerSandboxService(OSSFSMixin, SandboxService):
         labels, environment = self._build_labels_and_env(sandbox_id, request, expires_at)
         image_uri, auth_config = self._resolve_image_auth(request, sandbox_id)
         mem_limit, nano_cpus = self._resolve_resource_limits(request)
+        egress_token: Optional[str] = None
 
         # Prepare OSSFS mounts first so binds can reference mounted host paths.
         ossfs_mount_keys = self._prepare_ossfs_mounts(request.volumes)
@@ -969,10 +976,13 @@ class DockerSandboxService(OSSFSMixin, SandboxService):
             exposed_ports: Optional[list[str]] = None
 
             if request.network_policy:
+                egress_token = generate_egress_token()
+                labels[SANDBOX_EGRESS_AUTH_TOKEN_METADATA_KEY] = egress_token
                 host_execd_port, host_http_port = self._allocate_distinct_host_ports()
                 sidecar_container = self._start_egress_sidecar(
                     sandbox_id=sandbox_id,
                     network_policy=request.network_policy,
+                    egress_token=egress_token,
                     host_execd_port=host_execd_port,
                     host_http_port=host_http_port,
                 )
@@ -1713,7 +1723,13 @@ class DockerSandboxService(OSSFSMixin, SandboxService):
         public_host = self._resolve_public_host()
 
         if self.network_mode == HOST_NETWORK_MODE:
-            return Endpoint(endpoint=f"{public_host}:{port}")
+            endpoint = Endpoint(endpoint=f"{public_host}:{port}")
+            container = self._get_container_by_sandbox_id(sandbox_id)
+            self._attach_egress_auth_headers(
+                endpoint,
+                (container.attrs.get("Config", {}).get("Labels") or {}),
+            )
+            return endpoint
 
         # non-host mode (bridge / user-defined network)
         container = self._get_container_by_sandbox_id(sandbox_id)
@@ -1746,7 +1762,22 @@ class DockerSandboxService(OSSFSMixin, SandboxService):
                     "message": "Missing host port mapping for execd proxy port 44772.",
                 },
             )
-        return Endpoint(endpoint=f"{public_host}:{execd_host_port}/proxy/{port}")
+        endpoint = Endpoint(endpoint=f"{public_host}:{execd_host_port}/proxy/{port}")
+        self._attach_egress_auth_headers(endpoint, labels)
+        return endpoint
+
+    def _attach_egress_auth_headers(
+        self,
+        endpoint: Endpoint,
+        labels: dict[str, str],
+    ) -> None:
+        token = labels.get(SANDBOX_EGRESS_AUTH_TOKEN_METADATA_KEY)
+        if not token:
+            return
+        endpoint.headers = merge_endpoint_headers(
+            endpoint.headers,
+            build_egress_auth_headers(token),
+        )
 
     def _get_docker_host_ip(self) -> Optional[str]:
         """When running inside a container, return [docker].host_ip for endpoint URLs (if set)."""
@@ -1907,6 +1938,7 @@ class DockerSandboxService(OSSFSMixin, SandboxService):
         self,
         sandbox_id: str,
         network_policy: NetworkPolicy,
+        egress_token: str,
         host_execd_port: int,
         host_http_port: int,
     ):
@@ -1922,7 +1954,10 @@ class DockerSandboxService(OSSFSMixin, SandboxService):
         self._ensure_image_available(egress_image, None, sandbox_id)
 
         policy_payload = json.dumps(network_policy.model_dump(by_alias=True, exclude_none=True))
-        sidecar_env = [f"{EGRESS_RULES_ENV}={policy_payload}"]
+        sidecar_env = [
+            f"{EGRESS_RULES_ENV}={policy_payload}",
+            f"OPENSANDBOX_EGRESS_TOKEN={egress_token}",
+        ]
 
         sidecar_host_config_kwargs: dict[str, Any] = {
             "network_mode": BRIDGE_NETWORK_MODE,

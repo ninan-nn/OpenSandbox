@@ -15,6 +15,11 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from src.services.constants import (
+    OPEN_SANDBOX_EGRESS_AUTH_HEADER,
+    SANDBOX_EMBEDDING_PROXY_PORT_LABEL,
+    SANDBOX_EGRESS_AUTH_TOKEN_METADATA_KEY,
+)
 from src.services.docker import DockerSandboxService
 from src.config import AppConfig, RuntimeConfig, DockerConfig, ServerConfig
 
@@ -102,6 +107,56 @@ def test_get_endpoint_bridge_other_port_via_execd(mock_docker_service):
 
     assert endpoint.endpoint == "192.168.1.100:50002/proxy/6000"
 
+
+def test_get_endpoint_bridge_egress_port_includes_auth_header(mock_docker_service):
+    service, mock_client = mock_docker_service
+    service.app_config.docker.network_mode = "bridge"
+    service.network_mode = "bridge"
+
+    labels = {
+        "opensandbox.io/embedding-proxy-port": "50002",
+        "opensandbox.io/http-port": "50001",
+        "opensandbox.io/egress-auth-token": "egress-token",
+    }
+    mock_container = MagicMock()
+    mock_container.attrs = {
+        "State": {"Running": True},
+        "Config": {"Labels": labels},
+        "NetworkSettings": {"IPAddress": "172.17.0.5"},
+    }
+    mock_client.containers.list.return_value = [mock_container]
+
+    with patch("src.services.sandbox_service.SandboxService._resolve_bind_ip", return_value="192.168.1.100"):
+        endpoint = service.get_endpoint("sbx-123", 18080, resolve_internal=False)
+
+    assert endpoint.endpoint == "192.168.1.100:50002/proxy/18080"
+    assert endpoint.headers == {OPEN_SANDBOX_EGRESS_AUTH_HEADER: "egress-token"}
+
+
+def test_get_endpoint_bridge_non_egress_port_still_includes_instance_auth_header(
+    mock_docker_service,
+):
+    service, mock_client = mock_docker_service
+    service.app_config.docker.network_mode = "bridge"
+    service.network_mode = "bridge"
+
+    labels = {
+        SANDBOX_EMBEDDING_PROXY_PORT_LABEL: "50002",
+        SANDBOX_EGRESS_AUTH_TOKEN_METADATA_KEY: "egress-token",
+    }
+    mock_container = MagicMock()
+    mock_container.attrs = {
+        "State": {"Running": True},
+        "Config": {"Labels": labels},
+        "NetworkSettings": {"IPAddress": "172.17.0.5"},
+    }
+    mock_client.containers.list.return_value = [mock_container]
+
+    with patch("src.services.sandbox_service.SandboxService._resolve_bind_ip", return_value="192.168.1.100"):
+        endpoint = service.get_endpoint("sbx-123", 44772, resolve_internal=False)
+
+    assert endpoint.endpoint == "192.168.1.100:50002/proxy/44772"
+    assert endpoint.headers == {OPEN_SANDBOX_EGRESS_AUTH_HEADER: "egress-token"}
 
 def test_get_endpoint_bridge_internal_resolution(mock_docker_service):
     service, mock_client = mock_docker_service
