@@ -44,6 +44,7 @@ from opensandbox.models.sandboxes import (
 from opensandbox.sync.adapters.factory import AdapterFactorySync
 from opensandbox.sync.services import (
     CommandsSync,
+    EgressSync,
     FilesystemSync,
     HealthSync,
     MetricsSync,
@@ -118,6 +119,7 @@ class SandboxSync:
         command_service: CommandsSync,
         health_service: HealthSync,
         metrics_service: MetricsSync,
+        egress_service: EgressSync,
         connection_config: ConnectionConfigSync,
         custom_health_check: Callable[["SandboxSync"], bool] | None = None,
     ) -> None:
@@ -130,6 +132,7 @@ class SandboxSync:
         self._command_service = command_service
         self._health_service = health_service
         self._metrics_service = metrics_service
+        self._egress_service = egress_service
         self._connection_config = connection_config
         self._custom_health_check = custom_health_check
 
@@ -234,21 +237,13 @@ class SandboxSync:
         """
         Get current egress policy for this sandbox.
         """
-        factory = AdapterFactorySync(self.connection_config)
-        endpoint = self._sandbox_service.get_sandbox_endpoint(
-            self.id, DEFAULT_EGRESS_PORT, self.connection_config.use_server_proxy
-        )
-        return factory.create_egress_service(endpoint).get_policy()
+        return self._egress_service.get_policy()
 
     def patch_egress_rules(self, rules: list[NetworkRule]) -> None:
         """
         Overwrite egress rules for this sandbox.
         """
-        factory = AdapterFactorySync(self.connection_config)
-        endpoint = self._sandbox_service.get_sandbox_endpoint(
-            self.id, DEFAULT_EGRESS_PORT, self.connection_config.use_server_proxy
-        )
-        factory.create_egress_service(endpoint).patch_rules(rules)
+        self._egress_service.patch_rules(rules)
 
     def pause(self) -> None:
         """
@@ -459,6 +454,9 @@ class SandboxSync:
             execd_endpoint = sandbox_service.get_sandbox_endpoint(
                 response.id, DEFAULT_EXECD_PORT, config.use_server_proxy
             )
+            egress_endpoint = sandbox_service.get_sandbox_endpoint(
+                response.id, DEFAULT_EGRESS_PORT, config.use_server_proxy
+            )
 
             sandbox = cls(
                 sandbox_id=response.id,
@@ -467,6 +465,7 @@ class SandboxSync:
                 command_service=factory.create_command_service(execd_endpoint),
                 health_service=factory.create_health_service(execd_endpoint),
                 metrics_service=factory.create_metrics_service(execd_endpoint),
+                egress_service=factory.create_egress_service(egress_endpoint),
                 connection_config=config,
                 custom_health_check=health_check,
             )
@@ -538,6 +537,9 @@ class SandboxSync:
             execd_endpoint = sandbox_service.get_sandbox_endpoint(
                 sandbox_id, DEFAULT_EXECD_PORT, config.use_server_proxy
             )
+            egress_endpoint = sandbox_service.get_sandbox_endpoint(
+                sandbox_id, DEFAULT_EGRESS_PORT, config.use_server_proxy
+            )
 
             sandbox = cls(
                 sandbox_id=sandbox_id,
@@ -546,6 +548,7 @@ class SandboxSync:
                 command_service=factory.create_command_service(execd_endpoint),
                 health_service=factory.create_health_service(execd_endpoint),
                 metrics_service=factory.create_metrics_service(execd_endpoint),
+                egress_service=factory.create_egress_service(egress_endpoint),
                 connection_config=config,
                 custom_health_check=health_check,
             )
@@ -609,6 +612,9 @@ class SandboxSync:
             execd_endpoint = sandbox_service.get_sandbox_endpoint(
                 sandbox_id, DEFAULT_EXECD_PORT, config.use_server_proxy
             )
+            egress_endpoint = sandbox_service.get_sandbox_endpoint(
+                sandbox_id, DEFAULT_EGRESS_PORT, config.use_server_proxy
+            )
 
             sandbox = cls(
                 sandbox_id=sandbox_id,
@@ -617,6 +623,7 @@ class SandboxSync:
                 command_service=factory.create_command_service(execd_endpoint),
                 health_service=factory.create_health_service(execd_endpoint),
                 metrics_service=factory.create_metrics_service(execd_endpoint),
+                egress_service=factory.create_egress_service(egress_endpoint),
                 connection_config=config,
                 custom_health_check=health_check,
             )

@@ -32,6 +32,7 @@ import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.SandboxMetrics
 import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.SandboxRenewResponse
 import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.Volume
 import com.alibaba.opensandbox.sandbox.domain.services.Commands
+import com.alibaba.opensandbox.sandbox.domain.services.Egress
 import com.alibaba.opensandbox.sandbox.domain.services.Filesystem
 import com.alibaba.opensandbox.sandbox.domain.services.Health
 import com.alibaba.opensandbox.sandbox.domain.services.Metrics
@@ -85,6 +86,7 @@ class Sandbox internal constructor(
     private val commandService: Commands,
     private val healthService: Health,
     private val metricsService: Metrics,
+    private val egressService: Egress,
     private val customHealthCheck: ((sandbox: Sandbox) -> Boolean)? = null,
     private val httpClientProvider: HttpClientProvider,
 ) : AutoCloseable {
@@ -201,6 +203,13 @@ class Sandbox internal constructor(
                 val commandService = factory.createCommands(execdEndpoint)
                 val metricsService = factory.createMetrics(execdEndpoint)
                 val healthService = factory.createHealth(execdEndpoint)
+                val egressEndpoint =
+                    sandboxService.getSandboxEndpoint(
+                        sandboxId,
+                        DEFAULT_EGRESS_PORT,
+                        connectionConfig.useServerProxy,
+                    )
+                val egressService = factory.createEgress(egressEndpoint)
 
                 val sandbox =
                     Sandbox(
@@ -210,6 +219,7 @@ class Sandbox internal constructor(
                         commandService = commandService,
                         metricsService = metricsService,
                         healthService = healthService,
+                        egressService = egressService,
                         customHealthCheck = healthCheck,
                         httpClientProvider = httpClientProvider,
                     )
@@ -431,8 +441,7 @@ class Sandbox internal constructor(
      * @throws SandboxException if operation fails
      */
     fun getEgressPolicy(): NetworkPolicy {
-        val endpoint = getEndpoint(DEFAULT_EGRESS_PORT)
-        return AdapterFactory(httpClientProvider).createEgress(endpoint).getPolicy()
+        return egressService.getPolicy()
     }
 
     /**
@@ -441,8 +450,7 @@ class Sandbox internal constructor(
      * @throws SandboxException if operation fails
      */
     fun patchEgressRules(rules: List<NetworkRule>) {
-        val endpoint = getEndpoint(DEFAULT_EGRESS_PORT)
-        AdapterFactory(httpClientProvider).createEgress(endpoint).patchRules(rules)
+        egressService.patchRules(rules)
     }
 
     /**

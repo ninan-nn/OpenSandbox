@@ -45,6 +45,7 @@ from opensandbox.models.sandboxes import (
 )
 from opensandbox.services import (
     Commands,
+    Egress,
     Filesystem,
     Health,
     Metrics,
@@ -112,6 +113,7 @@ class Sandbox:
         command_service: Commands,
         health_service: Health,
         metrics_service: Metrics,
+        egress_service: Egress,
         connection_config: ConnectionConfig,
         custom_health_check: Callable[["Sandbox"], Awaitable[bool]] | None = None,
     ) -> None:
@@ -124,6 +126,7 @@ class Sandbox:
         self._command_service = command_service
         self._health_service = health_service
         self._metrics_service = metrics_service
+        self._egress_service = egress_service
         self._connection_config = connection_config
         self._custom_health_check = custom_health_check
 
@@ -226,21 +229,13 @@ class Sandbox:
         """
         Get current egress policy for this sandbox.
         """
-        factory = AdapterFactory(self.connection_config)
-        endpoint = await self._sandbox_service.get_sandbox_endpoint(
-            self.id, DEFAULT_EGRESS_PORT, self.connection_config.use_server_proxy
-        )
-        return await factory.create_egress_service(endpoint).get_policy()
+        return await self._egress_service.get_policy()
 
     async def patch_egress_rules(self, rules: list[NetworkRule]) -> None:
         """
         Overwrite egress rules for this sandbox.
         """
-        factory = AdapterFactory(self.connection_config)
-        endpoint = await self._sandbox_service.get_sandbox_endpoint(
-            self.id, DEFAULT_EGRESS_PORT, self.connection_config.use_server_proxy
-        )
-        await factory.create_egress_service(endpoint).patch_rules(rules)
+        await self._egress_service.patch_rules(rules)
 
     async def pause(self) -> None:
         """
@@ -471,6 +466,9 @@ class Sandbox:
             execd_endpoint = await sandbox_service.get_sandbox_endpoint(
                 response.id, DEFAULT_EXECD_PORT, config.use_server_proxy
             )
+            egress_endpoint = await sandbox_service.get_sandbox_endpoint(
+                response.id, DEFAULT_EGRESS_PORT, config.use_server_proxy
+            )
 
             sandbox = cls(
                 sandbox_id=response.id,
@@ -479,6 +477,7 @@ class Sandbox:
                 command_service=factory.create_command_service(execd_endpoint),
                 health_service=factory.create_health_service(execd_endpoint),
                 metrics_service=factory.create_metrics_service(execd_endpoint),
+                egress_service=factory.create_egress_service(egress_endpoint),
                 connection_config=config,
                 custom_health_check=health_check,
             )
@@ -559,6 +558,9 @@ class Sandbox:
             execd_endpoint = await sandbox_service.get_sandbox_endpoint(
                 sandbox_id, DEFAULT_EXECD_PORT, config.use_server_proxy
             )
+            egress_endpoint = await sandbox_service.get_sandbox_endpoint(
+                sandbox_id, DEFAULT_EGRESS_PORT, config.use_server_proxy
+            )
 
             sandbox = cls(
                 sandbox_id=sandbox_id,
@@ -567,6 +569,7 @@ class Sandbox:
                 command_service=factory.create_command_service(execd_endpoint),
                 health_service=factory.create_health_service(execd_endpoint),
                 metrics_service=factory.create_metrics_service(execd_endpoint),
+                egress_service=factory.create_egress_service(egress_endpoint),
                 connection_config=config,
                 custom_health_check=health_check,
             )
@@ -630,6 +633,9 @@ class Sandbox:
             execd_endpoint = await sandbox_service.get_sandbox_endpoint(
                 sandbox_id, DEFAULT_EXECD_PORT, config.use_server_proxy
             )
+            egress_endpoint = await sandbox_service.get_sandbox_endpoint(
+                sandbox_id, DEFAULT_EGRESS_PORT, config.use_server_proxy
+            )
 
             sandbox = cls(
                 sandbox_id=sandbox_id,
@@ -638,6 +644,7 @@ class Sandbox:
                 command_service=factory.create_command_service(execd_endpoint),
                 health_service=factory.create_health_service(execd_endpoint),
                 metrics_service=factory.create_metrics_service(execd_endpoint),
+                egress_service=factory.create_egress_service(egress_endpoint),
                 connection_config=config,
                 custom_health_check=health_check,
             )

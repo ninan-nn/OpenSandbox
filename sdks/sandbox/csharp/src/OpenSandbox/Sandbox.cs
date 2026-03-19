@@ -61,6 +61,8 @@ public sealed class Sandbox : IAsyncDisposable
     /// </summary>
     public IExecdMetrics Metrics { get; }
 
+    private readonly IEgress _egress;
+
     private readonly ISandboxes _sandboxes;
     private readonly IAdapterFactory _adapterFactory;
     private readonly string _lifecycleBaseUrl;
@@ -85,7 +87,8 @@ public sealed class Sandbox : IAsyncDisposable
         IExecdCommands commands,
         ISandboxFiles files,
         IExecdHealth health,
-        IExecdMetrics metrics)
+        IExecdMetrics metrics,
+        IEgress egress)
     {
         Id = id;
         ConnectionConfig = connectionConfig;
@@ -100,6 +103,7 @@ public sealed class Sandbox : IAsyncDisposable
         Files = files;
         Health = health;
         Metrics = metrics;
+        _egress = egress;
     }
 
     /// <summary>
@@ -181,12 +185,27 @@ public sealed class Sandbox : IAsyncDisposable
             var protocol = connectionConfig.Protocol == ConnectionProtocol.Https ? "https" : "http";
             var execdBaseUrl = $"{protocol}://{endpoint.EndpointAddress}";
             var execdHeaders = MergeHeaders(connectionConfig.Headers, endpoint.Headers);
+            var egressEndpoint = await sandboxes.GetSandboxEndpointAsync(
+                sandboxId,
+                Constants.DefaultEgressPort,
+                connectionConfig.UseServerProxy,
+                cancellationToken).ConfigureAwait(false);
+            var egressBaseUrl = $"{protocol}://{egressEndpoint.EndpointAddress}";
+            var egressHeaders = MergeHeaders(connectionConfig.Headers, egressEndpoint.Headers);
 
             var execdStack = adapterFactory.CreateExecdStack(new CreateExecdStackOptions
             {
                 ConnectionConfig = connectionConfig,
                 ExecdBaseUrl = execdBaseUrl,
                 ExecdHeaders = execdHeaders,
+                HttpClientProvider = httpClientProvider,
+                LoggerFactory = loggerFactory
+            });
+            var egressStack = adapterFactory.CreateEgressStack(new CreateEgressStackOptions
+            {
+                ConnectionConfig = connectionConfig,
+                EgressBaseUrl = egressBaseUrl,
+                EgressHeaders = egressHeaders,
                 HttpClientProvider = httpClientProvider,
                 LoggerFactory = loggerFactory
             });
@@ -203,7 +222,8 @@ public sealed class Sandbox : IAsyncDisposable
                 execdStack.Commands,
                 execdStack.Files,
                 execdStack.Health,
-                execdStack.Metrics);
+                execdStack.Metrics,
+                egressStack.Egress);
 
             if (!options.SkipHealthCheck)
             {
@@ -289,12 +309,27 @@ public sealed class Sandbox : IAsyncDisposable
             var protocol = connectionConfig.Protocol == ConnectionProtocol.Https ? "https" : "http";
             var execdBaseUrl = $"{protocol}://{endpoint.EndpointAddress}";
             var execdHeaders = MergeHeaders(connectionConfig.Headers, endpoint.Headers);
+            var egressEndpoint = await sandboxes.GetSandboxEndpointAsync(
+                options.SandboxId,
+                Constants.DefaultEgressPort,
+                connectionConfig.UseServerProxy,
+                cancellationToken).ConfigureAwait(false);
+            var egressBaseUrl = $"{protocol}://{egressEndpoint.EndpointAddress}";
+            var egressHeaders = MergeHeaders(connectionConfig.Headers, egressEndpoint.Headers);
 
             var execdStack = adapterFactory.CreateExecdStack(new CreateExecdStackOptions
             {
                 ConnectionConfig = connectionConfig,
                 ExecdBaseUrl = execdBaseUrl,
                 ExecdHeaders = execdHeaders,
+                HttpClientProvider = httpClientProvider,
+                LoggerFactory = loggerFactory
+            });
+            var egressStack = adapterFactory.CreateEgressStack(new CreateEgressStackOptions
+            {
+                ConnectionConfig = connectionConfig,
+                EgressBaseUrl = egressBaseUrl,
+                EgressHeaders = egressHeaders,
                 HttpClientProvider = httpClientProvider,
                 LoggerFactory = loggerFactory
             });
@@ -311,7 +346,8 @@ public sealed class Sandbox : IAsyncDisposable
                 execdStack.Commands,
                 execdStack.Files,
                 execdStack.Health,
-                execdStack.Metrics);
+                execdStack.Metrics,
+                egressStack.Egress);
 
             if (!options.SkipHealthCheck)
             {
@@ -489,19 +525,7 @@ public sealed class Sandbox : IAsyncDisposable
     /// <returns>The current egress policy.</returns>
     public async Task<NetworkPolicy> GetEgressPolicyAsync(CancellationToken cancellationToken = default)
     {
-        var endpoint = await GetEndpointAsync(Constants.DefaultEgressPort, cancellationToken).ConfigureAwait(false);
-        var protocol = ConnectionConfig.Protocol == ConnectionProtocol.Https ? "https" : "http";
-        var egressBaseUrl = $"{protocol}://{endpoint.EndpointAddress}";
-        var egressHeaders = MergeHeaders(ConnectionConfig.Headers, endpoint.Headers);
-
-        return await _adapterFactory.CreateEgressStack(new CreateEgressStackOptions
-        {
-            ConnectionConfig = ConnectionConfig,
-            EgressBaseUrl = egressBaseUrl,
-            EgressHeaders = egressHeaders,
-            HttpClientProvider = _httpClientProvider,
-            LoggerFactory = _loggerFactory
-        }).Egress.GetPolicyAsync(cancellationToken).ConfigureAwait(false);
+        return await _egress.GetPolicyAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -513,19 +537,7 @@ public sealed class Sandbox : IAsyncDisposable
         IReadOnlyList<NetworkRule> rules,
         CancellationToken cancellationToken = default)
     {
-        var endpoint = await GetEndpointAsync(Constants.DefaultEgressPort, cancellationToken).ConfigureAwait(false);
-        var protocol = ConnectionConfig.Protocol == ConnectionProtocol.Https ? "https" : "http";
-        var egressBaseUrl = $"{protocol}://{endpoint.EndpointAddress}";
-        var egressHeaders = MergeHeaders(ConnectionConfig.Headers, endpoint.Headers);
-
-        await _adapterFactory.CreateEgressStack(new CreateEgressStackOptions
-        {
-            ConnectionConfig = ConnectionConfig,
-            EgressBaseUrl = egressBaseUrl,
-            EgressHeaders = egressHeaders,
-            HttpClientProvider = _httpClientProvider,
-            LoggerFactory = _loggerFactory
-        }).Egress.PatchRulesAsync(rules, cancellationToken).ConfigureAwait(false);
+        await _egress.PatchRulesAsync(rules, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

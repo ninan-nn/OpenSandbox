@@ -23,6 +23,7 @@ import {
 } from "./core/constants.js";
 import { ConnectionConfig, type ConnectionConfigOptions } from "./config/connection.js";
 import type { SandboxFiles } from "./services/filesystem.js";
+import type { Egress } from "./services/egress.js";
 import { createDefaultAdapterFactory } from "./factory/defaultAdapterFactory.js";
 import type { AdapterFactory } from "./factory/adapterFactory.js";
 
@@ -189,6 +190,7 @@ export class Sandbox {
       adapterFactory: AdapterFactory;
       lifecycleBaseUrl: string;
       execdBaseUrl: string;
+      egress: Egress;
     }
   >();
 
@@ -203,6 +205,7 @@ export class Sandbox {
     files: SandboxFiles;
     health: ExecdHealth;
     metrics: ExecdMetrics;
+    egress: Egress;
   }) {
     this.id = opts.id;
     this.connectionConfig = opts.connectionConfig;
@@ -210,6 +213,7 @@ export class Sandbox {
       adapterFactory: opts.adapterFactory,
       lifecycleBaseUrl: opts.lifecycleBaseUrl,
       execdBaseUrl: opts.execdBaseUrl,
+      egress: opts.egress,
     });
 
     this.sandboxes = opts.sandboxes;
@@ -296,7 +300,13 @@ export class Sandbox {
         DEFAULT_EXECD_PORT,
         connectionConfig.useServerProxy
       );
+      const egressEndpoint = await sandboxes.getSandboxEndpoint(
+        sandboxId,
+        DEFAULT_EGRESS_PORT,
+        connectionConfig.useServerProxy
+      );
       const execdBaseUrl = `${connectionConfig.protocol}://${endpoint.endpoint}`;
+      const egressBaseUrl = `${connectionConfig.protocol}://${egressEndpoint.endpoint}`;
 
       const { commands, files, health, metrics } =
         adapterFactory.createExecdStack({
@@ -304,6 +314,11 @@ export class Sandbox {
           execdBaseUrl,
           endpointHeaders: endpoint.headers,
         });
+      const { egress } = adapterFactory.createEgressStack({
+        connectionConfig,
+        egressBaseUrl,
+        endpointHeaders: egressEndpoint.headers,
+      });
 
       const sbx = new Sandbox({
         id: sandboxId,
@@ -316,6 +331,7 @@ export class Sandbox {
         files,
         health,
         metrics,
+        egress,
       });
 
       if (!(opts.skipHealthCheck ?? false)) {
@@ -369,13 +385,24 @@ export class Sandbox {
         DEFAULT_EXECD_PORT,
         connectionConfig.useServerProxy
       );
+      const egressEndpoint = await sandboxes.getSandboxEndpoint(
+        opts.sandboxId,
+        DEFAULT_EGRESS_PORT,
+        connectionConfig.useServerProxy
+      );
       const execdBaseUrl = `${connectionConfig.protocol}://${endpoint.endpoint}`;
+      const egressBaseUrl = `${connectionConfig.protocol}://${egressEndpoint.endpoint}`;
       const { commands, files, health, metrics } =
         adapterFactory.createExecdStack({
           connectionConfig,
           execdBaseUrl,
           endpointHeaders: endpoint.headers,
         });
+      const { egress } = adapterFactory.createEgressStack({
+        connectionConfig,
+        egressBaseUrl,
+        endpointHeaders: egressEndpoint.headers,
+      });
 
       const sbx = new Sandbox({
         id: opts.sandboxId,
@@ -388,6 +415,7 @@ export class Sandbox {
         files,
         health,
         metrics,
+        egress,
       });
 
       if (!(opts.skipHealthCheck ?? false)) {
@@ -502,21 +530,11 @@ export class Sandbox {
   }
 
   async getEgressPolicy(): Promise<NetworkPolicy> {
-    const endpoint = await this.getEndpoint(DEFAULT_EGRESS_PORT);
-    return await Sandbox._priv.get(this)!.adapterFactory.createEgressStack({
-      connectionConfig: this.connectionConfig,
-      egressBaseUrl: `${this.connectionConfig.protocol}://${endpoint.endpoint}`,
-      endpointHeaders: endpoint.headers,
-    }).egress.getPolicy();
+    return await Sandbox._priv.get(this)!.egress.getPolicy();
   }
 
   async patchEgressRules(rules: NetworkRule[]): Promise<void> {
-    const endpoint = await this.getEndpoint(DEFAULT_EGRESS_PORT);
-    await Sandbox._priv.get(this)!.adapterFactory.createEgressStack({
-      connectionConfig: this.connectionConfig,
-      egressBaseUrl: `${this.connectionConfig.protocol}://${endpoint.endpoint}`,
-      endpointHeaders: endpoint.headers,
-    }).egress.patchRules(rules);
+    await Sandbox._priv.get(this)!.egress.patchRules(rules);
   }
 
   /**
