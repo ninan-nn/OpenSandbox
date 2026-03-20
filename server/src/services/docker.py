@@ -1718,6 +1718,16 @@ class DockerSandboxService(OSSFSMixin, SandboxService):
 
         if resolve_internal:
             container = self._get_container_by_sandbox_id(sandbox_id)
+            labels = container.attrs.get("Config", {}).get("Labels") or {}
+            # Sandboxes created with egress sidecar share the sidecar network namespace, so the
+            # main container's private IP is not a stable proxy target. In that case, treat the
+            # server-proxy target as the server-local host-mapped endpoint instead of a container IP.
+            if labels.get(SANDBOX_EGRESS_AUTH_TOKEN_METADATA_KEY):
+                return self._resolve_host_mapped_endpoint(
+                    self._resolve_proxy_host(),
+                    labels,
+                    port,
+                )
             return self._resolve_internal_endpoint(container, port)
 
         public_host = self._resolve_public_host()
@@ -1734,6 +1744,14 @@ class DockerSandboxService(OSSFSMixin, SandboxService):
         # non-host mode (bridge / user-defined network)
         container = self._get_container_by_sandbox_id(sandbox_id)
         labels = container.attrs.get("Config", {}).get("Labels") or {}
+        return self._resolve_host_mapped_endpoint(public_host, labels, port)
+
+    def _resolve_host_mapped_endpoint(
+        self,
+        public_host: str,
+        labels: dict[str, str],
+        port: int,
+    ) -> Endpoint:
         execd_host_port = self._parse_host_port_label(
             labels.get(SANDBOX_EMBEDDING_PROXY_PORT_LABEL),
             SANDBOX_EMBEDDING_PROXY_PORT_LABEL,
@@ -1762,6 +1780,7 @@ class DockerSandboxService(OSSFSMixin, SandboxService):
                     "message": "Missing host port mapping for execd proxy port 44772.",
                 },
             )
+
         endpoint = Endpoint(endpoint=f"{public_host}:{execd_host_port}/proxy/{port}")
         self._attach_egress_auth_headers(endpoint, labels)
         return endpoint
@@ -1797,6 +1816,22 @@ class DockerSandboxService(OSSFSMixin, SandboxService):
                 if host_ip:
                     return host_ip
             return self._resolve_bind_ip(socket.AF_INET)
+        return host_cfg
+
+    def _resolve_proxy_host(self) -> str:
+        """Resolve the server-local host used for proxying to host-mapped Docker endpoints.
+
+        This intentionally does not use ``server.eip`` because the proxy target must be reachable
+        from the server process itself, even in deployments without hairpin access to the public EIP.
+        """
+        host_cfg = (self.app_config.server.host or "").strip()
+        host_key = host_cfg.lower()
+        if host_key in {"", "0.0.0.0", "::"}:
+            if _running_inside_docker_container():
+                host_ip = self._get_docker_host_ip()
+                if host_ip:
+                    return host_ip
+            return "127.0.0.1"
         return host_cfg
 
     def _resolve_internal_endpoint(self, container, port: int) -> Endpoint:

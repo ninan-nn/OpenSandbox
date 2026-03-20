@@ -174,6 +174,83 @@ def test_get_endpoint_bridge_internal_resolution(mock_docker_service):
     assert endpoint.endpoint == "10.0.0.5:8080"
 
 
+def test_get_endpoint_bridge_internal_resolution_with_egress_sidecar_falls_back_to_host_mapped_endpoint(
+    mock_docker_service,
+):
+    service, mock_client = mock_docker_service
+    service.app_config.docker.network_mode = "bridge"
+    service.network_mode = "bridge"
+
+    labels = {
+        SANDBOX_EMBEDDING_PROXY_PORT_LABEL: "50002",
+        SANDBOX_EGRESS_AUTH_TOKEN_METADATA_KEY: "egress-token",
+    }
+    mock_container = MagicMock()
+    mock_container.attrs = {
+        "State": {"Running": True},
+        "Config": {"Labels": labels},
+        "NetworkSettings": {"IPAddress": ""},
+    }
+    mock_client.containers.list.return_value = [mock_container]
+
+    endpoint = service.get_endpoint("sbx-123", 18080, resolve_internal=True)
+
+    assert endpoint.endpoint == "127.0.0.1:50002/proxy/18080"
+    assert endpoint.headers == {OPEN_SANDBOX_EGRESS_AUTH_HEADER: "egress-token"}
+
+
+def test_get_endpoint_bridge_internal_resolution_with_egress_sidecar_ignores_container_ip(
+    mock_docker_service,
+):
+    service, mock_client = mock_docker_service
+    service.app_config.docker.network_mode = "bridge"
+    service.network_mode = "bridge"
+
+    labels = {
+        SANDBOX_EMBEDDING_PROXY_PORT_LABEL: "50002",
+        SANDBOX_EGRESS_AUTH_TOKEN_METADATA_KEY: "egress-token",
+    }
+    mock_container = MagicMock()
+    mock_container.attrs = {
+        "State": {"Running": True},
+        "Config": {"Labels": labels},
+        "NetworkSettings": {"IPAddress": "10.0.0.5"},
+    }
+    mock_client.containers.list.return_value = [mock_container]
+
+    endpoint = service.get_endpoint("sbx-123", 18080, resolve_internal=True)
+
+    assert endpoint.endpoint == "127.0.0.1:50002/proxy/18080"
+    assert endpoint.headers == {OPEN_SANDBOX_EGRESS_AUTH_HEADER: "egress-token"}
+
+
+def test_get_endpoint_bridge_internal_resolution_with_egress_sidecar_uses_proxy_host_not_eip(
+    mock_docker_service,
+):
+    service, mock_client = mock_docker_service
+    service.app_config.server.host = "0.0.0.0"
+    service.app_config.server.eip = "203.0.113.10"
+    service.app_config.docker.network_mode = "bridge"
+    service.network_mode = "bridge"
+
+    labels = {
+        SANDBOX_EMBEDDING_PROXY_PORT_LABEL: "50002",
+        SANDBOX_EGRESS_AUTH_TOKEN_METADATA_KEY: "egress-token",
+    }
+    mock_container = MagicMock()
+    mock_container.attrs = {
+        "State": {"Running": True},
+        "Config": {"Labels": labels},
+        "NetworkSettings": {"IPAddress": ""},
+    }
+    mock_client.containers.list.return_value = [mock_container]
+
+    endpoint = service.get_endpoint("sbx-123", 18080, resolve_internal=True)
+
+    assert endpoint.endpoint == "127.0.0.1:50002/proxy/18080"
+    assert endpoint.headers == {OPEN_SANDBOX_EGRESS_AUTH_HEADER: "egress-token"}
+
+
 def test_get_endpoint_bridge_uses_docker_host_ip_when_server_in_container():
     """When server runs in container (host=0.0.0.0), endpoint uses [docker].host_ip."""
     config = AppConfig(
