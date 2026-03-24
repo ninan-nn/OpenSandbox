@@ -265,7 +265,7 @@ func (c *CodeInterpretingController) CreateSession() {
 	c.RespondSuccess(model.CreateSessionResponse{SessionID: sessionID})
 }
 
-// RunInSession runs code in an existing bash session and streams output via SSE (run_in_session API).
+// RunInSession runs a command in an existing bash session and streams output via SSE (run_in_session API).
 func (c *CodeInterpretingController) RunInSession() {
 	sessionID := c.ctx.Param("sessionId")
 	if sessionID == "" {
@@ -295,11 +295,11 @@ func (c *CodeInterpretingController) RunInSession() {
 		return
 	}
 
-	timeout := time.Duration(request.TimeoutMs) * time.Millisecond
+	timeout := time.Duration(request.Timeout) * time.Millisecond
 	runReq := &runtime.ExecuteCodeRequest{
 		Language: runtime.Bash,
 		Context:  sessionID,
-		Code:     request.Code,
+		Code:     request.Command,
 		Cwd:      request.Cwd,
 		Timeout:  timeout,
 	}

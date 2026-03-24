@@ -320,9 +320,9 @@ paths:
 
   /session/{sessionId}/run:
     post:
-      summary: Run code in bash session (run_in_session)
+      summary: Run command in bash session (run_in_session)
       description: |
-        Executes code in an existing bash session and streams the output in real-time via SSE
+        Executes a shell command in an existing bash session and streams the output in real-time via SSE
         (Server-Sent Events). The session must have been created by create_session. Supports
         optional working directory override and timeout (milliseconds).
       operationId: runInSession
@@ -344,15 +344,15 @@ paths:
               $ref: "#/components/schemas/RunInSessionRequest"
             examples:
               simple:
-                summary: Run shell code
+                summary: Run shell command
                 value:
-                  code: echo "Hello from session"
+                  command: echo "Hello from session"
               with_options:
                 summary: With cwd and timeout
                 value:
-                  code: ls -la
+                  command: ls -la
                   cwd: /workspace
-                  timeout_ms: 30000
+                  timeout: 30000
       responses:
         "200":
           description: Stream of execution events
@@ -1016,19 +1016,19 @@ components:
 
     RunInSessionRequest:
       type: object
-      description: Request to run code in an existing bash session
+      description: Request to run a command in an existing bash session
       required:
-        - code
+        - command
       properties:
-        code:
+        command:
           type: string
-          description: Shell code to execute in the session
+          description: Shell command to execute in the session
           example: echo "Hello"
         cwd:
           type: string
           description: Working directory override for this run (optional)
           example: /workspace
-        timeout_ms:
+        timeout:
           type: integer
           format: int64
           minimum: 0

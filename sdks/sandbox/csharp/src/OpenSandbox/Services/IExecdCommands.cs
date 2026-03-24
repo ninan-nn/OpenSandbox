@@ -103,19 +103,19 @@ public interface IExecdCommands
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Runs shell code in an existing bash session and returns the execution result (SSE consumed internally).
+    /// Runs a shell command in an existing bash session and returns the execution result (SSE consumed internally).
     /// </summary>
     /// <param name="sessionId">Session ID from <see cref="CreateSessionAsync"/>.</param>
-    /// <param name="code">Shell code to execute.</param>
+    /// <param name="command">Shell command to execute.</param>
     /// <param name="options">Optional cwd and timeout for this run.</param>
     /// <param name="handlers">Optional event handlers for real-time processing.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The execution result with stdout/stderr and completion status.</returns>
-    /// <exception cref="InvalidArgumentException">Thrown when <paramref name="sessionId"/> or <paramref name="code"/> is null or empty.</exception>
+    /// <exception cref="InvalidArgumentException">Thrown when <paramref name="sessionId"/> or <paramref name="command"/> is null or empty.</exception>
     /// <exception cref="SandboxException">Thrown when the execd service request fails.</exception>
     Task<Execution> RunInSessionAsync(
         string sessionId,
-        string code,
+        string command,
         RunInSessionOptions? options = null,
         ExecutionHandlers? handlers = null,
         CancellationToken cancellationToken = default);

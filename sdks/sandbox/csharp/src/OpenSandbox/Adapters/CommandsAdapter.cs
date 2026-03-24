@@ -177,7 +177,7 @@ internal sealed class CommandsAdapter : IExecdCommands
 
     public async IAsyncEnumerable<ServerStreamEvent> RunInSessionStreamAsync(
         string sessionId,
-        string code,
+        string command,
         RunInSessionOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
@@ -185,18 +185,18 @@ internal sealed class CommandsAdapter : IExecdCommands
         {
             throw new InvalidArgumentException("sessionId cannot be empty");
         }
-        if (string.IsNullOrWhiteSpace(code))
+        if (string.IsNullOrWhiteSpace(command))
         {
-            throw new InvalidArgumentException("code cannot be empty");
+            throw new InvalidArgumentException("command cannot be empty");
         }
 
         var path = $"/session/{Uri.EscapeDataString(sessionId)}/run";
         var url = $"{_baseUrl}{path}";
         var requestBody = new RunInSessionRequest
         {
-            Code = code,
+            Command = command,
             Cwd = options?.Cwd,
-            TimeoutMs = options?.TimeoutMs
+            Timeout = options?.Timeout
         };
 
         var json = JsonSerializer.Serialize(requestBody, JsonOptions);
@@ -222,7 +222,7 @@ internal sealed class CommandsAdapter : IExecdCommands
 
     public async Task<Execution> RunInSessionAsync(
         string sessionId,
-        string code,
+        string command,
         RunInSessionOptions? options = null,
         ExecutionHandlers? handlers = null,
         CancellationToken cancellationToken = default)
@@ -231,16 +231,16 @@ internal sealed class CommandsAdapter : IExecdCommands
         {
             throw new InvalidArgumentException("sessionId cannot be empty");
         }
-        if (string.IsNullOrWhiteSpace(code))
+        if (string.IsNullOrWhiteSpace(command))
         {
-            throw new InvalidArgumentException("code cannot be empty");
+            throw new InvalidArgumentException("command cannot be empty");
         }
 
-        _logger.LogDebug("Running in session: {SessionId} (codeLength={CodeLength})", sessionId, code.Length);
+        _logger.LogDebug("Running in session: {SessionId} (commandLength={CommandLength})", sessionId, command.Length);
         var execution = new Execution();
         var dispatcher = new ExecutionEventDispatcher(execution, handlers);
 
-        await foreach (var ev in RunInSessionStreamAsync(sessionId, code, options, cancellationToken).ConfigureAwait(false))
+        await foreach (var ev in RunInSessionStreamAsync(sessionId, command, options, cancellationToken).ConfigureAwait(false))
         {
             if (ev.Type == ServerStreamEventTypes.Init && string.IsNullOrEmpty(ev.Text) && !string.IsNullOrEmpty(execution.Id))
             {

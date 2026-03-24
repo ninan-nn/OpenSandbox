@@ -39,7 +39,7 @@ internal interface BashSession {
     fun createSession(cwd: String? = null): String
 
     /**
-     * Runs shell code in an existing bash session and streams output via SSE.
+     * Runs a shell command in an existing bash session and streams output via SSE.
      *
      * @param sessionId Session ID from createSession
      * @param request Code to execute and optional cwd/timeout/handlers

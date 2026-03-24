@@ -131,20 +131,20 @@ class Commands(Protocol):
     async def run_in_session(
         self,
         session_id: str,
-        code: str,
+        command: str,
         *,
         cwd: str | None = None,
-        timeout_ms: int | None = None,
+        timeout: int | None = None,
         handlers: ExecutionHandlers | None = None,
     ) -> Execution:
         """
-        Run shell code in an existing bash session (streams output via SSE).
+        Run a shell command in an existing bash session (streams output via SSE).
 
         Args:
             session_id: Session ID from create_session.
-            code: Shell code to execute.
+            command: Shell command to execute.
             cwd: Optional working directory override for this run.
-            timeout_ms: Optional max execution time in milliseconds.
+            timeout: Optional max execution time in milliseconds.
             handlers: Optional async handlers for streaming events.
 
         Returns:

@@ -94,7 +94,7 @@ interface Commands {
     fun createSession(cwd: String? = null): String
 
     /**
-     * Runs shell code in an existing bash session and streams output via SSE.
+     * Runs a shell command in an existing bash session and streams output via SSE.
      *
      * @param sessionId Session ID from [createSession]
      * @param request Code to execute and optional cwd/timeout/handlers
@@ -106,20 +106,20 @@ interface Commands {
     ): Execution
 
     /**
-     * Convenience overload for running code in a session with minimal options.
+     * Convenience overload for running a command in a session with minimal options.
      */
     fun runInSession(
         sessionId: String,
-        code: String,
+        command: String,
         cwd: String? = null,
-        timeoutMs: Long? = null,
+        timeout: Long? = null,
     ): Execution {
         return runInSession(
             sessionId,
             RunInSessionRequest.builder()
-                .code(code)
+                .command(command)
                 .cwd(cwd)
-                .timeoutMs(timeoutMs)
+                .timeout(timeout)
                 .build(),
         )
     }

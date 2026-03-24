@@ -112,9 +112,9 @@ internal class SessionAdapter(
         try {
             val apiRequest =
                 RunInSessionRequestApi(
-                    code = request.code,
+                    command = request.command,
                     cwd = request.cwd,
-                    timeoutMs = request.timeoutMs,
+                    timeout = request.timeout,
                 )
             val runUrl =
                 "${httpClientProvider.config.protocol}://${execdEndpoint.endpoint}"
@@ -219,7 +219,7 @@ private data class CreateSessionResponse(
 
 @Serializable
 private data class RunInSessionRequestApi(
-    val code: String,
+    val command: String,
     val cwd: String? = null,
-    @SerialName("timeout_ms") val timeoutMs: Long? = null,
+    val timeout: Long? = null,
 )

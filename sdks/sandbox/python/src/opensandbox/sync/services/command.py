@@ -124,13 +124,13 @@ class CommandsSync(Protocol):
     def run_in_session(
         self,
         session_id: str,
-        code: str,
+        command: str,
         *,
         cwd: str | None = None,
-        timeout_ms: int | None = None,
+        timeout: int | None = None,
         handlers: ExecutionHandlersSync | None = None,
     ) -> Execution:
-        """Run shell code in an existing bash session (streams output via SSE)."""
+        """Run a shell command in an existing bash session (streams output via SSE)."""
         ...
 
     def delete_session(self, session_id: str) -> None:

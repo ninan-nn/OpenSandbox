@@ -17,17 +17,17 @@
 package com.alibaba.opensandbox.sandbox.domain.models.execd.executions
 
 /**
- * Request to run code in an existing bash session.
+ * Request to run a command in an existing bash session.
  *
- * @property code Shell code to execute
+ * @property command Shell command to execute
  * @property cwd Optional working directory override for this run
- * @property timeoutMs Optional max execution time in milliseconds
+ * @property timeout Optional max execution time in milliseconds
  * @property handlers Optional execution handlers for streaming events
  */
 class RunInSessionRequest private constructor(
-    val code: String,
+    val command: String,
     val cwd: String?,
-    val timeoutMs: Long?,
+    val timeout: Long?,
     val handlers: ExecutionHandlers?,
 ) {
     companion object {
@@ -36,14 +36,14 @@ class RunInSessionRequest private constructor(
     }
 
     class Builder {
-        private var code: String? = null
+        private var command: String? = null
         private var cwd: String? = null
-        private var timeoutMs: Long? = null
+        private var timeout: Long? = null
         private var handlers: ExecutionHandlers? = null
 
-        fun code(code: String): Builder {
-            require(code.isNotBlank()) { "Code cannot be blank" }
-            this.code = code
+        fun command(command: String): Builder {
+            require(command.isNotBlank()) { "Command cannot be blank" }
+            this.command = command
             return this
         }
 
@@ -52,8 +52,8 @@ class RunInSessionRequest private constructor(
             return this
         }
 
-        fun timeoutMs(timeoutMs: Long?): Builder {
-            this.timeoutMs = timeoutMs
+        fun timeout(timeout: Long?): Builder {
+            this.timeout = timeout
             return this
         }
 
@@ -63,11 +63,11 @@ class RunInSessionRequest private constructor(
         }
 
         fun build(): RunInSessionRequest {
-            val codeValue = code ?: throw IllegalArgumentException("Code must be specified")
+            val commandValue = command ?: throw IllegalArgumentException("Command must be specified")
             return RunInSessionRequest(
-                code = codeValue,
+                command = commandValue,
                 cwd = cwd,
-                timeoutMs = timeoutMs,
+                timeout = timeout,
                 handlers = handlers,
             )
         }

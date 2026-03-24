@@ -72,3 +72,42 @@ test("CommandsAdapter.run keeps exitCode null when error value is empty", async 
   assert.equal(execution.complete?.executionTimeMs, 4);
   assert.equal(execution.exitCode, null);
 });
+
+test("CommandsAdapter.runInSession sends command and timeout fields", async () => {
+  let requestBody;
+  const fetchImpl = async (url, init) => {
+    requestBody = JSON.parse(init.body);
+    assert.equal(url, "http://127.0.0.1:8080/session/sess-1/run");
+    return new Response(
+      [
+        'data: {"type":"stdout","text":"ok","timestamp":1}',
+        'data: {"type":"execution_complete","timestamp":2,"execution_time":3}',
+        "",
+      ].join("\n"),
+      {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      },
+    );
+  };
+
+  const adapter = new CommandsAdapter(
+    {},
+    {
+      baseUrl: "http://127.0.0.1:8080",
+      fetch: fetchImpl,
+    },
+  );
+
+  const execution = await adapter.runInSession("sess-1", "pwd", {
+    cwd: "/var",
+    timeout: 5000,
+  });
+
+  assert.deepEqual(requestBody, {
+    command: "pwd",
+    cwd: "/var",
+    timeout: 5000,
+  });
+  assert.equal(execution.logs.stdout[0].text, "ok");
+});

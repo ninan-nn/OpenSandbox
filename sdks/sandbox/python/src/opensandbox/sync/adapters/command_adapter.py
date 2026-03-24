@@ -62,6 +62,23 @@ def _infer_foreground_exit_code(execution: Execution) -> int | None:
     return None
 
 
+def _build_run_in_session_request_body(
+    command: str,
+    cwd: str | None,
+    timeout: int | None,
+):
+    from opensandbox.api.execd.models.run_in_session_request import (
+        RunInSessionRequest,
+    )
+    from opensandbox.api.execd.types import UNSET
+
+    return RunInSessionRequest(
+        command=command,
+        cwd=cwd if cwd else UNSET,
+        timeout=timeout if timeout is not None else UNSET,
+    )
+
+
 class CommandsAdapterSync(CommandsSync):
     """
     Synchronous implementation of :class:`~opensandbox.sync.services.command.CommandsSync`.
@@ -275,27 +292,18 @@ class CommandsAdapterSync(CommandsSync):
     def run_in_session(
         self,
         session_id: str,
-        code: str,
+        command: str,
         *,
         cwd: str | None = None,
-        timeout_ms: int | None = None,
+        timeout: int | None = None,
         handlers: ExecutionHandlersSync | None = None,
     ) -> Execution:
         if not (session_id and session_id.strip()):
             raise InvalidArgumentException("session_id cannot be empty")
-        if not (code and code.strip()):
-            raise InvalidArgumentException("code cannot be empty")
+        if not (command and command.strip()):
+            raise InvalidArgumentException("command cannot be empty")
 
-        from opensandbox.api.execd.models.run_in_session_request import (
-            RunInSessionRequest,
-        )
-        from opensandbox.api.execd.types import UNSET
-
-        body = RunInSessionRequest(
-            code=code,
-            cwd=cwd if cwd else UNSET,
-            timeout_ms=timeout_ms if timeout_ms is not None else UNSET,
-        )
+        body = _build_run_in_session_request_body(command, cwd, timeout)
         url = self._get_execd_url(
             self.RUN_IN_SESSION_PATH.format(session_id=session_id)
         )

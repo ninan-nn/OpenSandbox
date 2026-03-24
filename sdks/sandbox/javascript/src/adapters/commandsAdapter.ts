@@ -42,6 +42,8 @@ type ApiCommandLogsOk =
   ExecdPaths["/command/{id}/logs"]["get"]["responses"][200]["content"]["text/plain"];
 type ApiCreateSessionOk =
   ExecdPaths["/session"]["post"]["responses"][200]["content"]["application/json"];
+type ApiRunInSessionRequest =
+  ExecdPaths["/session/{sessionId}/run"]["post"]["requestBody"]["content"]["application/json"];
 
 function toRunCommandRequest(command: string, opts?: RunCommandOpts): ApiRunCommandRequest {
   if (opts?.gid != null && opts.uid == null) {
@@ -64,6 +66,22 @@ function toRunCommandRequest(command: string, opts?: RunCommandOpts): ApiRunComm
   }
   if (opts?.envs != null) {
     body.envs = opts.envs;
+  }
+  return body;
+}
+
+function toRunInSessionRequest(
+  command: string,
+  opts?: { cwd?: string; timeout?: number },
+): ApiRunInSessionRequest {
+  const body: ApiRunInSessionRequest = {
+    command,
+  };
+  if (opts?.cwd != null) {
+    body.cwd = opts.cwd;
+  }
+  if (opts?.timeout != null) {
+    body.timeout = opts.timeout;
   }
   return body;
 }
@@ -218,19 +236,15 @@ export class CommandsAdapter implements ExecdCommands {
 
   async *runInSessionStream(
     sessionId: string,
-    code: string,
-    opts?: { cwd?: string; timeoutMs?: number },
+    command: string,
+    opts?: { cwd?: string; timeout?: number },
     signal?: AbortSignal,
   ): AsyncIterable<ServerStreamEvent> {
     const url = joinUrl(
       this.opts.baseUrl,
       `/session/${encodeURIComponent(sessionId)}/run`,
     );
-    const body: { code: string; cwd?: string; timeout_ms?: number } = {
-      code,
-    };
-    if (opts?.cwd != null) body.cwd = opts.cwd;
-    if (opts?.timeoutMs != null) body.timeout_ms = opts.timeoutMs;
+    const body = toRunInSessionRequest(command, opts);
 
     const res = await this.fetch(url, {
       method: "POST",
@@ -252,8 +266,8 @@ export class CommandsAdapter implements ExecdCommands {
 
   async runInSession(
     sessionId: string,
-    code: string,
-    options?: { cwd?: string; timeoutMs?: number },
+    command: string,
+    options?: { cwd?: string; timeout?: number },
     handlers?: ExecutionHandlers,
     signal?: AbortSignal,
   ): Promise<CommandExecution> {
@@ -264,7 +278,7 @@ export class CommandsAdapter implements ExecdCommands {
     const dispatcher = new ExecutionEventDispatcher(execution, handlers);
     for await (const ev of this.runInSessionStream(
       sessionId,
-      code,
+      command,
       options,
       signal,
     )) {
