@@ -241,6 +241,11 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
 
+      - name: Build JavaScript SDK dependencies
+        working-directory: sdks
+        run: |
+          pnpm run build:js
+
       - name: Run eslint
         working-directory: ${{ matrix.package_dir }}
         run: |
@@ -250,11 +255,6 @@ jobs:
         working-directory: ${{ matrix.package_dir }}
         run: |
           pnpm run typecheck
-
-      - name: Build JavaScript SDKs
-        working-directory: sdks
-        run: |
-          pnpm run build:js
 
       - name: Run tests
         working-directory: ${{ matrix.package_dir }}
@@ -280,9 +280,11 @@ jobs:
           - package_name: sandbox
             package_dir: sdks/sandbox/kotlin
             test_task: :sandbox:test
+            gradle_args: ""
           - package_name: code-interpreter
             package_dir: sdks/code-interpreter/kotlin
             test_task: :code-interpreter:test
+            gradle_args: "-PuseMavenLocal"
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -296,10 +298,16 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v5
 
+      - name: Publish sandbox SDK to Maven local
+        if: matrix.package_name == 'code-interpreter'
+        working-directory: sdks/sandbox/kotlin
+        run: |
+          ./gradlew publishToMavenLocal
+
       - name: Run quality checks and tests
         working-directory: ${{ matrix.package_dir }}
         run: |
-          ./gradlew spotlessCheck ${{ matrix.test_task }}
+          ./gradlew spotlessCheck ${{ matrix.test_task }} ${{ matrix.gradle_args }}
 
       - name: Upload Kotlin reports
         if: always()
