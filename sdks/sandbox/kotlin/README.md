@@ -259,6 +259,7 @@ Pool lifecycle semantics:
 - In `DRAINING` / `STOPPED`, `acquire()` throws `PoolNotRunningException`.
 - `ownerId` is the lock owner identity (node/process id), not the pool identifier.
   If omitted, SDK auto-generates a UUID-based default.
+- Use `warmupSandboxPreparer(...)` if you need to prepare a sandbox after warmup readiness succeeds and before it is put into the idle pool.
 
 
 > For distributed deployment, your application must provide a `PoolStateStore` implementation and ensure it satisfies distributed semantics (atomic idle take, idempotent put/remove, lock ownership/renewal, pool isolation, and consistent counters).

@@ -42,15 +42,16 @@ class PoolConfigTest {
         assertEquals(Duration.ofMillis(200), config.warmupHealthCheckPollingInterval)
         assertFalse(config.warmupSkipHealthCheck)
         assertEquals(null, config.warmupHealthCheck)
-        assertEquals(Duration.ofSeconds(30), config.idleAcquireReadyTimeout)
-        assertEquals(Duration.ofMillis(200), config.idleAcquireHealthCheckPollingInterval)
-        assertFalse(config.idleAcquireSkipHealthCheck)
-        assertEquals(null, config.idleAcquireHealthCheck)
+        assertEquals(Duration.ofSeconds(30), config.acquireReadyTimeout)
+        assertEquals(Duration.ofMillis(200), config.acquireHealthCheckPollingInterval)
+        assertFalse(config.acquireSkipHealthCheck)
+        assertEquals(null, config.acquireHealthCheck)
     }
 
     @Test
     fun `build keeps configured warmup readiness settings`() {
         val healthCheck: (Sandbox) -> Boolean = { true }
+        val preparer = SandboxPreparer {}
         val config =
             PoolConfig.builder()
                 .poolName("test-pool")
@@ -59,23 +60,25 @@ class PoolConfigTest {
                 .stateStore(InMemoryPoolStateStore())
                 .connectionConfig(ConnectionConfig.builder().build())
                 .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
-                .idleAcquireReadyTimeout(Duration.ofSeconds(10))
-                .idleAcquireHealthCheckPollingInterval(Duration.ofMillis(250))
-                .idleAcquireHealthCheck(healthCheck)
-                .idleAcquireSkipHealthCheck()
+                .acquireReadyTimeout(Duration.ofSeconds(10))
+                .acquireHealthCheckPollingInterval(Duration.ofMillis(250))
+                .acquireHealthCheck(healthCheck)
+                .acquireSkipHealthCheck()
                 .warmupReadyTimeout(Duration.ofSeconds(45))
                 .warmupHealthCheckPollingInterval(Duration.ofSeconds(1))
                 .warmupHealthCheck(healthCheck)
+                .warmupSandboxPreparer(preparer)
                 .warmupSkipHealthCheck()
                 .build()
 
-        assertEquals(Duration.ofSeconds(10), config.idleAcquireReadyTimeout)
-        assertEquals(Duration.ofMillis(250), config.idleAcquireHealthCheckPollingInterval)
-        assertSame(healthCheck, config.idleAcquireHealthCheck)
-        assertEquals(true, config.idleAcquireSkipHealthCheck)
+        assertEquals(Duration.ofSeconds(10), config.acquireReadyTimeout)
+        assertEquals(Duration.ofMillis(250), config.acquireHealthCheckPollingInterval)
+        assertSame(healthCheck, config.acquireHealthCheck)
+        assertEquals(true, config.acquireSkipHealthCheck)
         assertEquals(Duration.ofSeconds(45), config.warmupReadyTimeout)
         assertEquals(Duration.ofSeconds(1), config.warmupHealthCheckPollingInterval)
         assertSame(healthCheck, config.warmupHealthCheck)
+        assertSame(preparer, config.warmupSandboxPreparer)
         assertEquals(true, config.warmupSkipHealthCheck)
     }
 }
