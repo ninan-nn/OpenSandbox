@@ -27,7 +27,9 @@ import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.NetworkRule
 import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.Volume
 import com.alibaba.opensandbox.sandbox.domain.pool.AcquirePolicy
 import com.alibaba.opensandbox.sandbox.domain.pool.PoolCreationSpec
+import com.alibaba.opensandbox.sandbox.domain.pool.PoolLifecycleState
 import com.alibaba.opensandbox.sandbox.domain.pool.PoolState
+import com.alibaba.opensandbox.sandbox.domain.pool.SandboxPreparer
 import com.alibaba.opensandbox.sandbox.infrastructure.pool.InMemoryPoolStateStore
 import io.mockk.every
 import io.mockk.just
@@ -37,12 +39,14 @@ import io.mockk.verify
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.time.Duration
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 class SandboxPoolTest {
     @Test
@@ -50,7 +54,12 @@ class SandboxPoolTest {
         val pool = buildPool()
         val snap = pool.snapshot()
         assertEquals(PoolState.STOPPED, snap.state)
+        assertEquals(PoolLifecycleState.NOT_STARTED, snap.lifecycleState)
         assertEquals(0, snap.idleCount)
+        assertEquals(2, snap.maxIdle)
+        assertEquals(0, snap.failureCount)
+        assertEquals(false, snap.backoffActive)
+        assertEquals(0, snap.inFlightOperations)
     }
 
     @Test
@@ -60,9 +69,24 @@ class SandboxPoolTest {
         try {
             val snap = pool.snapshot()
             assertEquals(PoolState.HEALTHY, snap.state)
+            assertEquals(PoolLifecycleState.RUNNING, snap.lifecycleState)
+            assertEquals(2, snap.maxIdle)
+            assertTrue(snap.failureCount >= 0)
+            assertTrue(snap.inFlightOperations >= 0)
         } finally {
             pool.shutdown(graceful = false)
         }
+    }
+
+    @Test
+    fun `snapshot reports in flight operations`() {
+        val pool = buildPool()
+        val inFlight = AtomicInteger(3)
+        setPrivateField(pool, "inFlightOperations", inFlight)
+
+        val snap = pool.snapshot()
+
+        assertEquals(3, snap.inFlightOperations)
     }
 
     @Test
@@ -73,6 +97,7 @@ class SandboxPoolTest {
             pool.resize(10)
             val snap = pool.snapshot()
             assertEquals(PoolState.HEALTHY, snap.state)
+            assertEquals(10, snap.maxIdle)
         } finally {
             pool.shutdown(graceful = false)
         }
@@ -85,6 +110,7 @@ class SandboxPoolTest {
         pool.shutdown(graceful = true)
         val snap = pool.snapshot()
         assertEquals(PoolState.STOPPED, snap.state)
+        assertEquals(PoolLifecycleState.STOPPED, snap.lifecycleState)
     }
 
     @Test
@@ -94,6 +120,7 @@ class SandboxPoolTest {
         pool.shutdown(graceful = false)
         val snap = pool.snapshot()
         assertEquals(PoolState.STOPPED, snap.state)
+        assertEquals(PoolLifecycleState.STOPPED, snap.lifecycleState)
     }
 
     @Test
@@ -304,6 +331,7 @@ class SandboxPoolTest {
     @Test
     fun `sandbox pool builder forwards warmup readiness settings into config`() {
         val healthCheck: (Sandbox) -> Boolean = { true }
+        val preparer = SandboxPreparer {}
         val pool =
             SandboxPool.builder()
                 .poolName("test-pool")
@@ -315,6 +343,7 @@ class SandboxPoolTest {
                 .warmupReadyTimeout(Duration.ofSeconds(45))
                 .warmupHealthCheckPollingInterval(Duration.ofMillis(500))
                 .warmupHealthCheck(healthCheck)
+                .warmupSandboxPreparer(preparer)
                 .warmupSkipHealthCheck()
                 .build()
 
@@ -325,11 +354,12 @@ class SandboxPoolTest {
         assertEquals(Duration.ofSeconds(45), config.warmupReadyTimeout)
         assertEquals(Duration.ofMillis(500), config.warmupHealthCheckPollingInterval)
         assertSame(healthCheck, config.warmupHealthCheck)
+        assertSame(preparer, config.warmupSandboxPreparer)
         assertEquals(true, config.warmupSkipHealthCheck)
     }
 
     @Test
-    fun `sandbox pool builder forwards idle acquire readiness settings into config`() {
+    fun `sandbox pool builder forwards acquire readiness settings into config`() {
         val healthCheck: (Sandbox) -> Boolean = { true }
         val pool =
             SandboxPool.builder()
@@ -339,20 +369,20 @@ class SandboxPoolTest {
                 .stateStore(InMemoryPoolStateStore())
                 .connectionConfig(ConnectionConfig.builder().build())
                 .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
-                .idleAcquireReadyTimeout(Duration.ofSeconds(5))
-                .idleAcquireHealthCheckPollingInterval(Duration.ofMillis(50))
-                .idleAcquireHealthCheck(healthCheck)
-                .idleAcquireSkipHealthCheck()
+                .acquireReadyTimeout(Duration.ofSeconds(5))
+                .acquireHealthCheckPollingInterval(Duration.ofMillis(50))
+                .acquireHealthCheck(healthCheck)
+                .acquireSkipHealthCheck()
                 .build()
 
         val configField = pool.javaClass.getDeclaredField("config")
         configField.isAccessible = true
         val config = configField.get(pool) as com.alibaba.opensandbox.sandbox.domain.pool.PoolConfig
 
-        assertEquals(Duration.ofSeconds(5), config.idleAcquireReadyTimeout)
-        assertEquals(Duration.ofMillis(50), config.idleAcquireHealthCheckPollingInterval)
-        assertSame(healthCheck, config.idleAcquireHealthCheck)
-        assertEquals(true, config.idleAcquireSkipHealthCheck)
+        assertEquals(Duration.ofSeconds(5), config.acquireReadyTimeout)
+        assertEquals(Duration.ofMillis(50), config.acquireHealthCheckPollingInterval)
+        assertSame(healthCheck, config.acquireHealthCheck)
+        assertEquals(true, config.acquireSkipHealthCheck)
     }
 
     private fun buildPool(): SandboxPool {
