@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""DevOps diagnostics commands: logs, inspect, events, summary."""
+"""Experimental DevOps diagnostics commands: logs, inspect, events, summary."""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ def _fetch_plain_text(obj: ClientContext, sandbox_id: str, endpoint: str, params
 @click.group("devops", invoke_without_command=True)
 @click.pass_context
 def devops_group(ctx: click.Context) -> None:
-    """DevOps diagnostics for sandbox troubleshooting."""
+    """Experimental diagnostics for sandbox troubleshooting."""
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
 
