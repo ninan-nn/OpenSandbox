@@ -315,6 +315,44 @@ class TestFileChmod:
 
 
 # ---------------------------------------------------------------------------
+# Egress commands
+# ---------------------------------------------------------------------------
+
+
+class TestEgressCommands:
+    def test_get_prints_policy(self, runner: CliRunner) -> None:
+        mock_sb = MagicMock()
+        mock_policy = MagicMock()
+        mock_policy.model_dump.return_value = {
+            "defaultAction": "deny",
+            "egress": [{"action": "allow", "target": "pypi.org"}],
+        }
+        mock_sb.get_egress_policy.return_value = mock_policy
+
+        result = _invoke(runner, ["-o", "json", "egress", "get", "sb-1"], sandbox=mock_sb)
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["defaultAction"] == "deny"
+
+    def test_patch_calls_sdk(self, runner: CliRunner) -> None:
+        mock_sb = MagicMock()
+        mock_sb.id = "sb-1"
+        result = _invoke(
+            runner,
+            ["-o", "json", "egress", "patch", "sb-1", "--rule", "allow=pypi.org", "--rule", "deny=bad.example.com"],
+            sandbox=mock_sb,
+        )
+        assert result.exit_code == 0
+        mock_sb.patch_egress_rules.assert_called_once()
+        rules = mock_sb.patch_egress_rules.call_args.args[0]
+        assert len(rules) == 2
+        assert rules[0].action == "allow"
+        assert rules[0].target == "pypi.org"
+        assert rules[1].action == "deny"
+        assert rules[1].target == "bad.example.com"
+
+
+# ---------------------------------------------------------------------------
 # Command execution
 # ---------------------------------------------------------------------------
 

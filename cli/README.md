@@ -190,6 +190,21 @@ Shortcut for `osb command run`. Everything after `--` is passed as the command.
 | `chmod`    | Set file permissions                       |
 | `replace`  | Find and replace content in a file         |
 
+### `osb egress` — Runtime Egress Policy
+
+| Command | Description                              |
+| ------- | ---------------------------------------- |
+| `get`   | Get the current runtime egress policy    |
+| `patch` | Patch runtime egress rules with merge semantics |
+
+```bash
+# Inspect current policy
+osb egress get <sandbox-id>
+
+# Allow PyPI and deny an internal domain
+osb egress patch <sandbox-id> --rule allow=pypi.org --rule deny=internal.example.com
+```
+
 ### `osb devops` — Experimental DevOps Diagnostics
 
 | Command   | Description                                          |

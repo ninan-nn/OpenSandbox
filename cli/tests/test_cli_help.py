@@ -45,7 +45,7 @@ class TestRootCLI:
 
     def test_root_lists_commands(self, runner: CliRunner) -> None:
         result = runner.invoke(cli, ["--help"])
-        for cmd in ("sandbox", "command", "exec", "file", "config", "devops", "skills"):
+        for cmd in ("sandbox", "command", "exec", "file", "egress", "config", "devops", "skills"):
             assert cmd in result.output
 
 
@@ -120,6 +120,19 @@ class TestFileHelp:
     def test_file_subcommand_help(self, runner: CliRunner, subcmd: str) -> None:
         result = runner.invoke(cli, ["file", subcmd, "--help"])
         assert result.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# Egress sub-commands
+# ---------------------------------------------------------------------------
+
+
+class TestEgressHelp:
+    def test_egress_help(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["egress", "--help"])
+        assert result.exit_code == 0
+        for subcmd in ("get", "patch"):
+            assert subcmd in result.output
 
 
 # ---------------------------------------------------------------------------
