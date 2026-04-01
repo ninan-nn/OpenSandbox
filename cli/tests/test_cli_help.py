@@ -181,5 +181,5 @@ class TestSkillsHelp:
     def test_skills_help(self, runner: CliRunner) -> None:
         result = runner.invoke(cli, ["skills", "--help"])
         assert result.exit_code == 0
-        for subcmd in ("install", "list", "uninstall"):
+        for subcmd in ("install", "show", "list", "uninstall"):
             assert subcmd in result.output

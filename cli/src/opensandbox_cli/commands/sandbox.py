@@ -17,10 +17,15 @@
 from __future__ import annotations
 
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import click
-from opensandbox.models.sandboxes import NetworkPolicy, SandboxFilter, Volume
+from opensandbox.models.sandboxes import (
+    NetworkPolicy,
+    SandboxFilter,
+    SandboxMetrics,
+    Volume,
+)
 
 from opensandbox_cli.client import ClientContext
 from opensandbox_cli.utils import DURATION, KEY_VALUE, handle_errors, parse_duration
@@ -125,8 +130,8 @@ def sandbox_create(
 @sandbox_group.command("list")
 @click.option("--state", "-s", "states", multiple=True, help="Filter by state (Pending, Running, Paused, ...). Repeatable.")
 @click.option("--metadata", "-m", "metadata_kv", multiple=True, type=KEY_VALUE, help="Metadata filter (KEY=VALUE). Repeatable.")
-@click.option("--page", type=int, default=None, help="Page number (0-indexed).")
-@click.option("--page-size", type=int, default=None, help="Items per page.")
+@click.option("--page", type=click.IntRange(min=1), default=None, help="Page number (1-indexed).")
+@click.option("--page-size", type=click.IntRange(min=1), default=None, help="Items per page.")
 @click.pass_obj
 @handle_errors
 def sandbox_list(
@@ -329,13 +334,75 @@ def sandbox_health(obj: ClientContext, sandbox_id: str) -> None:
 
 @sandbox_group.command("metrics")
 @click.argument("sandbox_id")
+@click.option("--watch", is_flag=True, default=False, help="Stream metrics updates in real time.")
 @click.pass_obj
 @handle_errors
-def sandbox_metrics(obj: ClientContext, sandbox_id: str) -> None:
+def sandbox_metrics(obj: ClientContext, sandbox_id: str, watch: bool) -> None:
     """Get sandbox resource metrics."""
     sandbox = obj.connect_sandbox(sandbox_id)
     try:
+        if watch:
+            _watch_sandbox_metrics(obj, sandbox)
+            return
+
         m = sandbox.get_metrics()
         obj.output.print_model(m, title="Sandbox Metrics")
     finally:
         sandbox.close()
+
+
+def _watch_sandbox_metrics(obj: ClientContext, sandbox) -> None:  # type: ignore[no-untyped-def]
+    """Stream sandbox metrics from the execd SSE endpoint."""
+    client = getattr(sandbox.metrics, "_httpx_client", None)
+    if client is None:
+        raise click.ClickException("Streaming metrics are unavailable for this sandbox connection.")
+
+    headers = {"Accept": "text/event-stream"}
+
+    try:
+        with client.stream("GET", "/metrics/watch", headers=headers) as response:
+            response.raise_for_status()
+            for line in response.iter_lines():
+                metric = _parse_metric_stream_line(line)
+                if metric is None:
+                    continue
+                _render_stream_metric(obj, metric)
+    except KeyboardInterrupt:
+        return
+
+
+def _parse_metric_stream_line(line: str) -> SandboxMetrics | None:
+    """Parse one line from the metrics SSE stream."""
+    stripped = line.strip()
+    if not stripped or stripped.startswith((":","event:", "id:", "retry:")):
+        return None
+
+    payload = stripped[5:].strip() if stripped.startswith("data:") else stripped
+    if not payload:
+        return None
+    return SandboxMetrics.model_validate(json.loads(payload))
+
+
+def _render_stream_metric(obj: ClientContext, metric: SandboxMetrics) -> None:
+    """Render one streaming metrics sample."""
+    if obj.output.fmt == "table":
+        timestamp = datetime.fromtimestamp(metric.timestamp / 1000, tz=timezone.utc).isoformat()
+        click.echo(
+            " ".join(
+                [
+                    f"[{timestamp}]",
+                    f"cpu={metric.cpu_used_percentage:.2f}%",
+                    f"cores={metric.cpu_count:g}",
+                    f"mem={metric.memory_used_in_mib:.2f}/{metric.memory_total_in_mib:.2f}MiB",
+                ]
+            )
+        )
+        return
+
+    if obj.output.fmt == "json":
+        click.echo(json.dumps(metric.model_dump(mode="json"), default=str))
+        return
+
+    if obj.output.fmt == "yaml":
+        obj.output.print_model(metric)
+        return

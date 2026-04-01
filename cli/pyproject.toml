@@ -73,7 +73,7 @@ include = [
     "LICENSE",
     "src/**/py.typed",
     "src/opensandbox_cli",
-    "src/opensandbox_cli/skills/*.md",
+    "src/opensandbox_cli/skills/**",
 ]
 
 [tool.hatch.build.targets.wheel]

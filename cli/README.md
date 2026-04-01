@@ -165,6 +165,17 @@ osb sandbox list
 | `health`   | Check sandbox health                        |
 | `metrics`  | Get sandbox resource metrics (CPU, memory)  |
 
+```bash
+# Point-in-time metrics snapshot
+osb sandbox metrics <sandbox-id>
+
+# Live metrics stream
+osb sandbox metrics <sandbox-id> --watch
+
+# Resolve a service endpoint
+osb sandbox endpoint <sandbox-id> --port 8080
+```
+
 ### `osb command` — Command Execution
 
 | Command     | Description                               |
@@ -268,36 +279,56 @@ All devops commands return plain text output, making them ideal for both human r
 
 | Command     | Description                                          |
 | ----------- | ---------------------------------------------------- |
-| `install`   | Install OpenSandbox troubleshooting skill for AI tools |
-| `list`      | List supported targets and their install status      |
-| `uninstall` | Remove installed skill from AI tools                 |
+| `install`   | Install one or more bundled OpenSandbox skills       |
+| `show`      | Show the content and trigger hint for a bundled skill |
+| `list`      | List bundled skills, targets, and install status     |
+| `uninstall` | Remove an installed OpenSandbox skill                |
 
-The troubleshooting skill enables AI coding assistants to automatically diagnose sandbox issues (OOM, crashes, image pull errors, etc.). Supported targets:
+The CLI ships with a small built-in skill set for OpenSandbox-aware AI tooling, including:
+
+- `troubleshoot-sandbox`
+- `sandbox-lifecycle`
+- `command-execution`
+- `file-operations`
+- `network-egress`
+- `devops-diagnostics`
+
+These skills cover common OpenSandbox flows such as troubleshooting, lifecycle control, command execution, file manipulation, network policy updates, and lower-level diagnostics. Supported targets:
 
 | Target    | AI Tool          | Install Location |
 | --------- | ---------------- | ---------------- |
-| `claude`  | Claude Code      | `~/.claude/skills/` |
-| `cursor`  | Cursor           | `~/.cursor/rules/` |
-| `codex`   | Codex            | `~/.codex/instructions.md` |
-| `copilot` | GitHub Copilot   | `~/.github/copilot-instructions.md` |
-| `windsurf`| Windsurf         | `~/.windsurfrules` |
-| `cline`   | Cline            | `~/.clinerules` |
+| `claude`  | Claude Code      | `project: ./.claude/skills/`, `global: ~/.claude/skills/` |
+| `cursor`  | Cursor           | `project: ./.cursor/rules/`, `global: ~/.cursor/rules/` |
+| `codex`   | Codex            | `project: ./.codex/skills/<name>/SKILL.md`, `global: ~/.codex/skills/<name>/SKILL.md` |
+| `copilot` | GitHub Copilot   | `project: ./.github/copilot-instructions.md`, `global: ~/.github/copilot-instructions.md` |
+| `windsurf`| Windsurf         | `project: ./.windsurfrules`, `global: ~/.windsurfrules` |
+| `cline`   | Cline            | `project: ./.clinerules`, `global: ~/.clinerules` |
+| `opencode`| OpenCode         | `project: ./.agents/skills/<name>/SKILL.md`, `global: ~/.agents/skills/<name>/SKILL.md` |
 
 ```bash
-# Install for Claude Code (default)
-osb skills install
-
-# Install for a specific tool
-osb skills install --target cursor
-
-# Install for all supported tools
-osb skills install --target all
-
-# Check install status
+# Show bundled skills and install status
 osb skills list
 
+# Show one bundled skill in full
+osb skills show sandbox-lifecycle
+
+# If you omit skill/target, the CLI prints install guidance
+osb skills install
+
+# Install a named skill for a specific tool and scope
+osb skills install troubleshoot-sandbox --target cursor --scope project
+
+# Install every bundled skill for a specific tool
+osb skills install --all-builtins --target codex --scope global
+
+# Install a single skill for OpenCode in the current project
+osb skills install network-egress --target opencode --scope project
+
+# Install for all supported tools
+osb skills install troubleshoot-sandbox --target all --scope project
+
 # Uninstall
-osb skills uninstall --target claude
+osb skills uninstall troubleshoot-sandbox --target claude --scope global
 ```
 
 ### `osb config` — Configuration
