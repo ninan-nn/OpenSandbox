@@ -182,7 +182,7 @@ Shortcut for `osb command run`. Everything after `--` is passed as the command.
 | `chmod`    | Set file permissions                       |
 | `replace`  | Find and replace content in a file         |
 
-### `osb devops` — DevOps Diagnostics
+### `osb devops` — Experimental DevOps Diagnostics
 
 | Command   | Description                                          |
 | --------- | ---------------------------------------------------- |
@@ -190,6 +190,8 @@ Shortcut for `osb command run`. Everything after `--` is passed as the command.
 | `inspect` | Retrieve detailed container/pod inspection info      |
 | `events`  | Retrieve events related to a sandbox                 |
 | `summary` | One-shot diagnostics: inspect + events + logs combined |
+
+These diagnostics commands are currently experimental. They are implemented by the server and exposed by the CLI, but are not yet part of the public `specs/` API contract and may change before being formalized.
 
 ```bash
 # Quick diagnostics summary
