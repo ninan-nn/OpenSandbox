@@ -370,14 +370,20 @@ class TestCommandInterrupt:
 
 class TestDevopsCommands:
     def test_logs_fetches_plain_text(self, runner: CliRunner) -> None:
-        with patch("opensandbox_cli.commands.devops.httpx.get") as mock_get:
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.text = "sandbox logs"
-            mock_get.return_value = mock_response
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = "sandbox logs"
+        mock_client.get.return_value = mock_response
+        mock_ctx = _build_mock_client_context()
+        mock_ctx.get_devops_client.return_value = mock_client
 
-            result = _invoke(runner, ["devops", "logs", "sb-1"])
+        with patch("opensandbox_cli.main.resolve_config") as mock_resolve, \
+             patch("opensandbox_cli.main.ClientContext", return_value=mock_ctx), \
+             patch("opensandbox_cli.main.OutputFormatter", side_effect=lambda fmt, **kw: OutputFormatter(fmt, **kw)):
+            mock_resolve.return_value = mock_ctx.resolved_config
+            result = runner.invoke(cli, ["devops", "logs", "sb-1"], catch_exceptions=False)
 
         assert result.exit_code == 0
         assert "sandbox logs" in result.output
-        mock_get.assert_called_once()
+        mock_client.get.assert_called_once()
