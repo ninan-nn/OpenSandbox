@@ -65,6 +65,7 @@ Start with the narrowest create command that matches the request:
 ```bash
 osb sandbox create --image python:3.12
 osb sandbox create --image node:20 --timeout 30m
+osb sandbox create --image python:3.12 --entrypoint python --entrypoint -m --entrypoint http.server
 osb sandbox create --image python:3.12 --ready-timeout 90s
 osb sandbox create --image python:3.12 --network-policy-file network-policy.json
 osb sandbox create --image python:3.12 --volumes-file volumes.json
@@ -74,6 +75,7 @@ Use these options deliberately:
 
 - `--image`: required unless the CLI already has `defaults.image` configured
 - `--timeout`: recommended for most temporary workloads so sandboxes do not linger indefinitely
+- `--entrypoint`: repeat the flag once per argv item; do not use JSON or shell-wrapped command strings
 - `--ready-timeout`: increase this when the image or workload needs more startup time
 - `--skip-health-check`: use only when the user explicitly wants object creation without waiting for readiness; do not use it to mask startup problems
 

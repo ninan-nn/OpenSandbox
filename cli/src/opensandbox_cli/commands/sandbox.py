@@ -51,7 +51,12 @@ sandbox_group.name = "sandbox"
 @click.option("--env", "-e", "envs", multiple=True, type=KEY_VALUE, help="Environment variable (KEY=VALUE). Repeatable.")
 @click.option("--metadata", "-m", "metadata_kv", multiple=True, type=KEY_VALUE, help="Metadata (KEY=VALUE). Repeatable.")
 @click.option("--resource", "resources_kv", multiple=True, type=KEY_VALUE, help="Resource limit (e.g. cpu=1 memory=2Gi). Repeatable.")
-@click.option("--entrypoint", default=None, help="Entrypoint command (JSON array or shell string).")
+@click.option(
+    "--entrypoint",
+    "entrypoint",
+    multiple=True,
+    help="Entrypoint argv item. Repeat to build the full entrypoint.",
+)
 @click.option("--network-policy-file", type=click.Path(exists=True), default=None, help="Network policy JSON file.")
 @click.option("--volumes-file", type=click.Path(exists=True), default=None, help="Volumes JSON file (list of volume objects).")
 @click.option("--skip-health-check", is_flag=True, default=False, help="Skip waiting for sandbox readiness.")
@@ -65,7 +70,7 @@ def sandbox_create(
     envs: tuple[tuple[str, str], ...],
     metadata_kv: tuple[tuple[str, str], ...],
     resources_kv: tuple[tuple[str, str], ...],
-    entrypoint: str | None,
+    entrypoint: tuple[str, ...],
     network_policy_file: str | None,
     volumes_file: str | None,
     skip_health_check: bool,
@@ -101,10 +106,7 @@ def sandbox_create(
     if resources_kv:
         kwargs["resource"] = dict(resources_kv)
     if entrypoint:
-        try:
-            kwargs["entrypoint"] = json.loads(entrypoint)
-        except json.JSONDecodeError:
-            kwargs["entrypoint"] = ["sh", "-c", entrypoint]
+        kwargs["entrypoint"] = list(entrypoint)
     if network_policy_file:
         with open(network_policy_file) as f:
             kwargs["network_policy"] = NetworkPolicy(**json.load(f))

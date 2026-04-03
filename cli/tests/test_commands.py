@@ -221,6 +221,43 @@ class TestSandboxCreate:
         assert volumes[0].name == "workdir"
         assert volumes[0].mount_path == "/workspace"
 
+    def test_create_builds_entrypoint_argv_from_repeated_flags(self, runner: CliRunner) -> None:
+        mock_sb = MagicMock()
+        mock_sb.id = "sb-123"
+
+        mock_ctx = _build_mock_client_context(sandbox=mock_sb)
+        with patch("opensandbox_cli.main.resolve_config") as mock_resolve, \
+             patch("opensandbox_cli.main.ClientContext", return_value=mock_ctx), \
+             patch("opensandbox_cli.main.OutputFormatter", side_effect=lambda fmt, **kw: OutputFormatter(fmt, **kw)), \
+             patch("opensandbox.sync.sandbox.SandboxSync.create", return_value=mock_sb) as mock_create:
+            mock_resolve.return_value = mock_ctx.resolved_config
+            result = runner.invoke(
+                cli,
+                [
+                    "-o",
+                    "json",
+                    "sandbox",
+                    "create",
+                    "--image",
+                    "python:3.12",
+                    "--entrypoint",
+                    "python",
+                    "--entrypoint",
+                    "-m",
+                    "--entrypoint",
+                    "http.server",
+                ],
+                catch_exceptions=False,
+            )
+
+        assert result.exit_code == 0
+        mock_create.assert_called_once()
+        assert mock_create.call_args.kwargs["entrypoint"] == [
+            "python",
+            "-m",
+            "http.server",
+        ]
+
 
 class TestSandboxKill:
     def test_kill_multiple(self, runner: CliRunner) -> None:

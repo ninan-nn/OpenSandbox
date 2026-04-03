@@ -85,6 +85,16 @@ osb sandbox create \
   --volumes-file volumes.json
 ```
 
+Pass `--entrypoint` repeatedly to build the argv list explicitly:
+
+```bash
+osb sandbox create \
+  --image python:3.12 \
+  --entrypoint python \
+  --entrypoint -m \
+  --entrypoint http.server
+```
+
 ![Create Sandbox](assets/cli_create_sandbox.png)
 
 ### Step 4: List Sandboxes
