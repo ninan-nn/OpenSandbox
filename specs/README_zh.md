@@ -16,7 +16,7 @@
 - **沙箱管理**：创建、列表、查询、删除沙箱实例，支持元数据过滤与分页
 - **状态控制**：暂停 (Pause)、恢复 (Resume) 沙箱执行
 - **生命周期**：支持 Pending → Running → Pausing → Paused → Stopping → Terminated，并包含错误态 `Failed`
-- **资源与运行时配置**：指定 CPU/内存/GPU 资源限制、必填 `entrypoint`、环境变量，以及自定义 `extensions`
+- **资源与运行时配置**：指定 CPU/内存/GPU 资源限制、必填 `entrypoint`、环境变量、可选的 `secureAccess`，以及自定义 `extensions`
 - **镜像支持**：从公共或私有镜像仓库创建沙箱，支持私有仓库认证
 - **超时管理**：创建时必填 `timeout`，并可通过 API 续期
 - **端点访问**：获取沙箱内服务的公共访问端点
