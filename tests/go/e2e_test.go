@@ -53,7 +53,7 @@ func TestE2E_FullLifecycle(t *testing.T) {
 
 	// 2. Create a sandbox
 	sb, err := client.CreateSandbox(ctx, opensandbox.CreateSandboxRequest{
-		Image: opensandbox.ImageSpec{
+		Image: &opensandbox.ImageSpec{
 			URI: getDefaultImage(),
 		},
 		Entrypoint: []string{"tail", "-f", "/dev/null"},

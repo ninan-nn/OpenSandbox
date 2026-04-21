@@ -32,6 +32,7 @@ from opensandbox.exceptions import (
     SandboxReadyTimeoutException,
 )
 from opensandbox.models.sandboxes import (
+    CreateSnapshotRequest,
     NetworkPolicy,
     NetworkRule,
     PlatformSpec,
@@ -40,6 +41,7 @@ from opensandbox.models.sandboxes import (
     SandboxInfo,
     SandboxMetrics,
     SandboxRenewResponse,
+    SnapshotInfo,
     Volume,
 )
 from opensandbox.sync.adapters.factory import AdapterFactorySync
@@ -234,6 +236,12 @@ class SandboxSync:
         )
         return self._sandbox_service.renew_sandbox_expiration(self.id, new_expiration)
 
+    def create_snapshot(self, name: str | None = None) -> SnapshotInfo:
+        """Create a persistent snapshot from this sandbox (blocking)."""
+        return self._sandbox_service.create_snapshot(
+            self.id, CreateSnapshotRequest(name=name)
+        )
+
     def get_egress_policy(self) -> NetworkPolicy:
         """
         Get current egress policy for this sandbox.
@@ -383,8 +391,9 @@ class SandboxSync:
     @classmethod
     def create(
         cls,
-        image: SandboxImageSpec | str,
+        image: SandboxImageSpec | str | None = None,
         *,
+        snapshot_id: str | None = None,
         timeout: timedelta | None = timedelta(minutes=10),
         ready_timeout: timedelta = timedelta(seconds=30),
         env: dict[str, str] | None = None,
@@ -426,6 +435,11 @@ class SandboxSync:
         Raises:
             SandboxException: if sandbox creation or initialization fails
         """
+        if (image is None) == (snapshot_id is None):
+            raise InvalidArgumentException(
+                "Exactly one of image or snapshot_id must be specified"
+            )
+
         config = (connection_config or ConnectionConfigSync()).with_transport_if_missing()
         entrypoint = entrypoint or ["tail", "-f", "/dev/null"]
         env = env or {}
@@ -436,10 +450,11 @@ class SandboxSync:
         if isinstance(image, str):
             image = SandboxImageSpec(image=image)
 
+        startup_source = image.image if image is not None else snapshot_id
         timeout_log = "manual-cleanup" if timeout is None else f"{timeout.total_seconds()}s"
         logger.info(
-            "Creating sandbox with image: %s (timeout: %s)",
-            image.image,
+            "Creating sandbox with startup source: %s (timeout: %s)",
+            startup_source,
             timeout_log,
         )
         factory = AdapterFactorySync(config)
@@ -459,13 +474,14 @@ class SandboxSync:
                 extensions,
                 volumes,
             )
-            if platform is None:
-                response = sandbox_service.create_sandbox(*create_args)
-            else:
+            if platform is not None or snapshot_id is not None:
                 response = sandbox_service.create_sandbox(
                     *create_args,
                     platform=platform,
+                    snapshot_id=snapshot_id,
                 )
+            else:
+                response = sandbox_service.create_sandbox(*create_args)
             sandbox_id = response.id
             execd_endpoint = sandbox_service.get_sandbox_endpoint(
                 response.id, DEFAULT_EXECD_PORT, config.use_server_proxy

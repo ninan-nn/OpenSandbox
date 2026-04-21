@@ -285,6 +285,27 @@ def test_sandbox_model_converter_omits_timeout_for_manual_cleanup() -> None:
     assert "timeout" not in dumped
 
 
+def test_sandbox_model_converter_snapshot_restore_request() -> None:
+    req = SandboxModelConverter.to_api_create_sandbox_request(
+        spec=None,
+        entrypoint=None,
+        env={},
+        metadata={},
+        timeout=None,
+        resource={"cpu": "100m"},
+        platform=None,
+        network_policy=None,
+        extensions={},
+        volumes=None,
+        snapshot_id="snap-123",
+    )
+
+    dumped = req.to_dict()
+    assert dumped["snapshotId"] == "snap-123"
+    assert "image" not in dumped
+    assert "entrypoint" not in dumped
+
+
 def test_sandbox_model_converter_maps_platform_from_create_response() -> None:
     from opensandbox.api.lifecycle.models.create_sandbox_response import (
         CreateSandboxResponse,

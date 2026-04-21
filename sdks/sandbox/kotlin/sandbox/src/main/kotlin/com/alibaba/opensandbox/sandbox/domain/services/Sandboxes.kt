@@ -18,6 +18,7 @@ package com.alibaba.opensandbox.sandbox.domain.services
 
 import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.NetworkPolicy
 import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.PagedSandboxInfos
+import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.PagedSnapshotInfos
 import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.PlatformSpec
 import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.SandboxCreateResponse
 import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.SandboxEndpoint
@@ -25,6 +26,8 @@ import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.SandboxFilter
 import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.SandboxImageSpec
 import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.SandboxInfo
 import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.SandboxRenewResponse
+import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.SnapshotFilter
+import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.SnapshotInfo
 import com.alibaba.opensandbox.sandbox.domain.models.sandboxes.Volume
 import java.time.Duration
 import java.time.OffsetDateTime
@@ -52,8 +55,8 @@ interface Sandboxes {
      * @return Sandbox creation response containing the sandbox id
      */
     fun createSandbox(
-        spec: SandboxImageSpec,
-        entrypoint: List<String>,
+        spec: SandboxImageSpec?,
+        entrypoint: List<String>?,
         env: Map<String, String>,
         metadata: Map<String, String>,
         timeout: Duration?,
@@ -61,6 +64,7 @@ interface Sandboxes {
         networkPolicy: NetworkPolicy?,
         extensions: Map<String, String>,
         volumes: List<Volume>?,
+        snapshotId: String? = null,
     ): SandboxCreateResponse
 
     /**
@@ -70,8 +74,8 @@ interface Sandboxes {
      * Sandboxes implementations compiled against the older interface method.
      */
     fun createSandbox(
-        spec: SandboxImageSpec,
-        entrypoint: List<String>,
+        spec: SandboxImageSpec?,
+        entrypoint: List<String>?,
         env: Map<String, String>,
         metadata: Map<String, String>,
         timeout: Duration?,
@@ -80,6 +84,7 @@ interface Sandboxes {
         extensions: Map<String, String>,
         volumes: List<Volume>?,
         platform: PlatformSpec?,
+        snapshotId: String? = null,
     ): SandboxCreateResponse =
         createSandbox(
             spec = spec,
@@ -91,6 +96,7 @@ interface Sandboxes {
             networkPolicy = networkPolicy,
             extensions = extensions,
             volumes = volumes,
+            snapshotId = snapshotId,
         )
 
     /**
@@ -108,6 +114,17 @@ interface Sandboxes {
      * @return List of sandbox information matching the filter
      */
     fun listSandboxes(filter: SandboxFilter): PagedSandboxInfos
+
+    fun createSnapshot(
+        sandboxId: String,
+        name: String? = null,
+    ): SnapshotInfo
+
+    fun getSnapshot(snapshotId: String): SnapshotInfo
+
+    fun listSnapshots(filter: SnapshotFilter): PagedSnapshotInfos
+
+    fun deleteSnapshot(snapshotId: String)
 
     /**
      * Get sandbox endpoint

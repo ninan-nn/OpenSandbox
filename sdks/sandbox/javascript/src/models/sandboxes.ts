@@ -227,7 +227,8 @@ export interface SandboxStatus extends Record<string, unknown> {
 
 export interface SandboxInfo extends Record<string, unknown> {
   id: SandboxId;
-  image: ImageSpec;
+  image?: ImageSpec;
+  snapshotId?: string;
   platform?: PlatformSpec;
   entrypoint: string[];
   metadata?: Record<string, string>;
@@ -243,8 +244,9 @@ export interface SandboxInfo extends Record<string, unknown> {
 }
 
 export interface CreateSandboxRequest extends Record<string, unknown> {
-  image: ImageSpec;
-  entrypoint: string[];
+  image?: ImageSpec;
+  snapshotId?: string;
+  entrypoint?: string[];
   platform?: PlatformSpec;
   /**
    * Timeout in seconds (server semantics).
@@ -278,6 +280,32 @@ export interface CreateSandboxResponse extends Record<string, unknown> {
    */
   createdAt: Date;
   entrypoint: string[];
+}
+
+export type SnapshotState = "Creating" | "Deleting" | "Ready" | "Failed" | string;
+
+export interface SnapshotStatus extends Record<string, unknown> {
+  state: SnapshotState;
+  reason?: string;
+  message?: string;
+  lastTransitionAt?: Date;
+}
+
+export interface SnapshotInfo extends Record<string, unknown> {
+  id: string;
+  sandboxId: SandboxId;
+  name?: string;
+  status: SnapshotStatus;
+  createdAt: Date;
+}
+
+export interface CreateSnapshotRequest extends Record<string, unknown> {
+  name?: string;
+}
+
+export interface ListSnapshotsResponse extends Record<string, unknown> {
+  items: SnapshotInfo[];
+  pagination?: PaginationInfo;
 }
 
 export interface PaginationInfo extends Record<string, unknown> {
@@ -326,4 +354,11 @@ export interface ListSandboxesParams {
   metadata?: Record<string, string>;
   page?: number;
   pageSize?: number;
-};
+}
+
+export interface ListSnapshotsParams {
+  sandboxId?: SandboxId;
+  states?: string[];
+  page?: number;
+  pageSize?: number;
+}
