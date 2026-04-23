@@ -29,10 +29,11 @@ Example files in this repository:
 8. [`[ingress]`](#ingress)
 9. [`[egress]`](#egress)
 10. [`[storage]`](#storage)
-11. [`[secure_runtime]`](#secure_runtime)
-12. [`[renew_intent]`](#renew_intent--experimental)
-13. [Environment variables (outside TOML)](#environment-variables-outside-toml)
-14. [Cross-field validation rules](#cross-field-validation-rules)
+11. [`[store]`](#store)
+12. [`[secure_runtime]`](#secure_runtime)
+13. [`[renew_intent]`](#renew_intent--experimental)
+14. [Environment variables (outside TOML)](#environment-variables-outside-toml)
+15. [Cross-field validation rules](#cross-field-validation-rules)
 
 ---
 
@@ -49,6 +50,7 @@ Example files in this repository:
 | `[ingress]` | No | Optional; see [Ingress](#ingress) |
 | `[egress]` | No | Required values when clients use `networkPolicy` on create |
 | `[storage]` | No | Host bind mounts / OSSFS mount root |
+| `[store]` | No | Server-managed persistent metadata backend |
 | `[secure_runtime]` | No | gVisor / Kata / Firecracker |
 | `[renew_intent]` | No | Experimental auto-renew on access |
 
@@ -218,6 +220,29 @@ Host-side storage related to **volume mounts** (host bind allowlist and OSSFS mo
 | `volume_default_size` | string | `"1Gi"` | Default storage size for auto-created Kubernetes PVCs when the caller does not specify a size in the PVC provisioning hints. |
 
 Sandbox **volume** models (`host`, `pvc`, `ossfs`) in API requests are documented in the OpenAPI specs and OSEPs; this table only covers **server** storage settings.
+
+---
+
+## `[store]`
+
+Configures the persistence backend for **server-managed resources**. This is a
+server-wide store, not a snapshot-specific backend. Snapshot metadata is the
+first resource persisted here; future persistent server resources should reuse
+the same backend.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `type` | string | `"sqlite"` | Server persistence backend type. Currently only **`sqlite`** is supported. |
+| `path` | string | `"~/.opensandbox/opensandbox.db"` | Filesystem path to the SQLite database file used for server-managed metadata. Parent directories are created automatically when needed. |
+
+**Notes**
+
+- The default SQLite backend gives local and single-node deployments persistent
+  metadata without requiring an external database service.
+- `memory` is intentionally **not** the default because server-managed snapshot
+  resources must survive process restarts.
+- Higher-level components should depend on repository abstractions rather than
+  importing `sqlite3` directly.
 
 ---
 

@@ -653,6 +653,20 @@ class DockerConfig(BaseModel):
     )
 
 
+class StoreConfig(BaseModel):
+    """Persistence backend for server-managed server resources."""
+
+    type: Literal["sqlite"] = Field(
+        default="sqlite",
+        description="Server persistence backend type. SQLite is the default local persistent backend.",
+    )
+    path: str = Field(
+        default=str(Path.home() / ".opensandbox" / "opensandbox.db"),
+        description="Filesystem path to the SQLite database used for server metadata persistence.",
+        min_length=1,
+    )
+
+
 class AppConfig(BaseModel):
     """Root application configuration model."""
 
@@ -671,6 +685,10 @@ class AppConfig(BaseModel):
     ingress: Optional[IngressConfig] = None
     docker: DockerConfig = Field(default_factory=DockerConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
+    store: StoreConfig = Field(
+        default_factory=StoreConfig,
+        description="Persistence backend configuration for server-managed resources.",
+    )
     egress: Optional[EgressConfig] = None
     secure_runtime: Optional[SecureRuntimeConfig] = Field(
         default=None,
@@ -799,6 +817,7 @@ __all__ = [
     "INGRESS_MODE_GATEWAY",
     "DockerConfig",
     "StorageConfig",
+    "StoreConfig",
     "KubernetesRuntimeConfig",
     "EgressConfig",
     "EGRESS_MODE_DNS",

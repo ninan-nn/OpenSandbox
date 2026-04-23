@@ -41,6 +41,7 @@ from opensandbox_server.services.constants import (
     SANDBOX_OSSFS_MOUNTS_LABEL,
     SANDBOX_PLATFORM_ARCH_LABEL,
     SANDBOX_PLATFORM_OS_LABEL,
+    SANDBOX_SNAPSHOT_ID_LABEL,
     SandboxErrorCodes,
 )
 from opensandbox_server.services.docker import DockerSandboxService, PendingSandbox
@@ -1483,6 +1484,62 @@ def test_restore_existing_sandboxes_ignores_manual_cleanup_without_warning():
 
     mock_schedule.assert_not_called()
     mock_warning.assert_not_called()
+
+@patch("opensandbox_server.services.docker.docker")
+def test_pending_snapshot_restore_reports_snapshot_id_without_image(mock_docker):
+    mock_client = MagicMock()
+    mock_client.containers.list.return_value = []
+    mock_docker.from_env.return_value = mock_client
+
+    service = DockerSandboxService(config=_app_config())
+    pending = PendingSandbox(
+        request=MagicMock(
+            metadata={"team": "platform"},
+            entrypoint=["tail", "-f", "/dev/null"],
+            image=ImageSpec(uri="opensandbox-snapshots:snap-001"),
+            platform=None,
+            snapshot_id="snap-001",
+        ),
+        created_at=datetime.now(timezone.utc),
+        expires_at=datetime.now(timezone.utc),
+        status=SandboxStatus(state="Pending"),
+    )
+
+    sandbox = service._pending_to_sandbox("sandbox-123", pending)
+
+    assert sandbox.snapshot_id == "snap-001"
+    assert sandbox.image is None
+
+@patch("opensandbox_server.services.docker.docker")
+def test_container_snapshot_restore_reports_snapshot_id_without_image(mock_docker):
+    mock_client = MagicMock()
+    mock_client.containers.list.return_value = []
+    mock_docker.from_env.return_value = mock_client
+
+    service = DockerSandboxService(config=_app_config())
+    container = MagicMock()
+    container.attrs = {
+        "Config": {
+            "Labels": {
+                SANDBOX_ID_LABEL: "sandbox-123",
+                SANDBOX_SNAPSHOT_ID_LABEL: "snap-001",
+            },
+            "Cmd": ["tail", "-f", "/dev/null"],
+        },
+        "Created": "2025-01-01T00:00:00Z",
+        "State": {
+            "Status": "running",
+            "Running": True,
+            "FinishedAt": "0001-01-01T00:00:00Z",
+            "ExitCode": 0,
+        },
+    }
+    container.image = MagicMock(tags=["opensandbox-snapshots:snap-001"], short_id="sha-image")
+
+    sandbox = service._container_to_sandbox(container)
+
+    assert sandbox.snapshot_id == "snap-001"
+    assert sandbox.image is None
 
 @patch("opensandbox_server.services.docker.docker")
 def test_delete_sandbox_removes_windows_oem_volume(mock_docker):

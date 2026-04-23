@@ -37,6 +37,10 @@ allowed_host_paths = []
 # 自动创建 Kubernetes PVC 时的默认存储大小（当调用方未指定时使用）。
 volume_default_size = "1Gi"
 
+[store]
+type = "sqlite"
+path = "~/.opensandbox/opensandbox.db"
+
 [docker]
 # Supported values for network_mode: "host", "bridge"
 network_mode = "bridge"

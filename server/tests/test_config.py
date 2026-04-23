@@ -30,6 +30,7 @@ from opensandbox_server.config import (
     IngressConfig,
     RuntimeConfig,
     ServerConfig,
+    StoreConfig,
     StorageConfig,
 )
 
@@ -94,6 +95,12 @@ def test_server_config_defaults_include_max_sandbox_timeout():
     assert server_cfg.max_sandbox_timeout_seconds is None
 
 
+def test_store_defaults_to_sqlite():
+    cfg = StoreConfig()
+    assert cfg.type == "sqlite"
+    assert cfg.path.endswith("opensandbox.db")
+
+
 def test_renew_intent_defaults():
     cfg = AppConfig(runtime=RuntimeConfig(type="docker", execd_image="opensandbox/execd:latest"))
     ar = cfg.renew_intent
@@ -146,6 +153,28 @@ def test_load_config_renew_intent_dotted_redis_keys(tmp_path, monkeypatch):
     assert ar.redis.dsn == "redis://example:6379/1"
     assert ar.redis.queue_key == "custom:renew"
     assert ar.redis.consumer_concurrency == 4
+
+
+def test_load_config_store_block(tmp_path, monkeypatch):
+    _reset_config(monkeypatch)
+    db_path = tmp_path / "snapshots.sqlite3"
+    toml = textwrap.dedent(
+        f"""
+        [store]
+        type = "sqlite"
+        path = "{db_path}"
+
+        [runtime]
+        type = "docker"
+        execd_image = "opensandbox/execd:test"
+        """
+    )
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(toml)
+
+    loaded = config_module.load_config(config_path)
+    assert loaded.store.type == "sqlite"
+    assert loaded.store.path == str(db_path)
 
 
 def test_load_config_renew_intent_legacy_redis_subtable(tmp_path, monkeypatch):

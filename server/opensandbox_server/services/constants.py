@@ -21,6 +21,7 @@ SANDBOX_EXPIRES_AT_LABEL = "opensandbox.io/expires-at"
 SANDBOX_MANUAL_CLEANUP_LABEL = "opensandbox.io/manual-cleanup"
 SANDBOX_PLATFORM_OS_LABEL = "opensandbox.io/platform-os"
 SANDBOX_PLATFORM_ARCH_LABEL = "opensandbox.io/platform-arch"
+SANDBOX_SNAPSHOT_ID_LABEL = "opensandbox.io/snapshot-id"
 # Host-mapped ports recorded on containers (bridge mode).
 SANDBOX_EMBEDDING_PROXY_PORT_LABEL = "opensandbox.io/embedding-proxy-port"  # maps container 44772 -> host port
 SANDBOX_HTTP_PORT_LABEL = "opensandbox.io/http-port"  # maps container 8080 -> host port
@@ -46,6 +47,7 @@ class SandboxErrorCodes:
     CONTAINER_QUERY_FAILED = "DOCKER::SANDBOX_QUERY_FAILED"
     SANDBOX_NOT_FOUND = "DOCKER::SANDBOX_NOT_FOUND"
     IMAGE_PULL_FAILED = "DOCKER::SANDBOX_IMAGE_PULL_FAILED"
+    IMAGE_REMOVE_ERROR = "DOCKER::SNAPSHOT_IMAGE_REMOVE_FAILED"
     CONTAINER_START_FAILED = "DOCKER::SANDBOX_START_FAILED"
     SANDBOX_DELETE_FAILED = "DOCKER::SANDBOX_DELETE_FAILED"
     SANDBOX_NOT_RUNNING = "DOCKER::SANDBOX_NOT_RUNNING"
@@ -114,6 +116,7 @@ __all__ = [
     "SANDBOX_MANUAL_CLEANUP_LABEL",
     "SANDBOX_PLATFORM_OS_LABEL",
     "SANDBOX_PLATFORM_ARCH_LABEL",
+    "SANDBOX_SNAPSHOT_ID_LABEL",
     "SANDBOX_EMBEDDING_PROXY_PORT_LABEL",
     "SANDBOX_HTTP_PORT_LABEL",
     "SANDBOX_OSSFS_MOUNTS_LABEL",

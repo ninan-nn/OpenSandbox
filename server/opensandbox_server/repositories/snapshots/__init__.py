@@ -12,21 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-[server]
-host = "127.0.0.1"
-port = 9000
-api_key = "test-api-key-12345"
+"""Snapshot persistence backends."""
 
-[log]
-level = "DEBUG"
+from opensandbox_server.repositories.snapshots.factory import create_snapshot_repository
+from opensandbox_server.repositories.snapshots.sqlite import SQLiteSnapshotRepository
 
-[runtime]
-type = "docker"
-execd_image = "ghcr.io/opensandbox/platform:latest"
-
-[store]
-type = "sqlite"
-path = "/tmp/opensandbox-server-test.db"
-
-[ingress]
-mode = "direct"
+__all__ = [
+    "SQLiteSnapshotRepository",
+    "create_snapshot_repository",
+]
