@@ -53,6 +53,7 @@ interface Sandboxes {
      * @param secureAccess Whether to enable secured access for sandbox endpoints
      * @param extensions Opaque extension parameters passed through to the server as-is. Prefer namespaced keys
      * @param volumes Optional list of volume mounts for persistent storage
+     * @param snapshotId Optional snapshot identifier used to restore a sandbox instead of booting from an image
      * @return Sandbox creation response containing the sandbox id
      */
     fun createSandbox(
@@ -65,53 +66,9 @@ interface Sandboxes {
         networkPolicy: NetworkPolicy?,
         extensions: Map<String, String>,
         volumes: List<Volume>?,
+        platform: PlatformSpec? = null,
+        secureAccess: Boolean = false,
         snapshotId: String? = null,
-    ): SandboxCreateResponse
-
-    /**
-     * Creates a new sandbox with optional runtime platform constraint.
-     *
-     * This default implementation preserves binary compatibility for existing
-     * Sandboxes implementations compiled against the older interface method.
-     */
-    fun createSandbox(
-        spec: SandboxImageSpec?,
-        entrypoint: List<String>?,
-        env: Map<String, String>,
-        metadata: Map<String, String>,
-        timeout: Duration?,
-        resource: Map<String, String>,
-        networkPolicy: NetworkPolicy?,
-        extensions: Map<String, String>,
-        volumes: List<Volume>?,
-        platform: PlatformSpec?,
-        snapshotId: String? = null,
-    ): SandboxCreateResponse =
-        createSandbox(
-            spec = spec,
-            entrypoint = entrypoint,
-            env = env,
-            metadata = metadata,
-            timeout = timeout,
-            resource = resource,
-            networkPolicy = networkPolicy,
-            extensions = extensions,
-            volumes = volumes,
-            snapshotId = snapshotId,
-        )
-
-    fun createSandbox(
-        spec: SandboxImageSpec,
-        entrypoint: List<String>,
-        env: Map<String, String>,
-        metadata: Map<String, String>,
-        timeout: Duration?,
-        resource: Map<String, String>,
-        networkPolicy: NetworkPolicy?,
-        extensions: Map<String, String>,
-        volumes: List<Volume>?,
-        platform: PlatformSpec?,
-        secureAccess: Boolean,
     ): SandboxCreateResponse
 
     /**

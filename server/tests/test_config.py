@@ -158,11 +158,12 @@ def test_load_config_renew_intent_dotted_redis_keys(tmp_path, monkeypatch):
 def test_load_config_store_block(tmp_path, monkeypatch):
     _reset_config(monkeypatch)
     db_path = tmp_path / "snapshots.sqlite3"
+    escaped_db_path = str(db_path).replace("\\", "\\\\").replace('"', '\\"')
     toml = textwrap.dedent(
         f"""
         [store]
         type = "sqlite"
-        path = "{db_path}"
+        path = "{escaped_db_path}"
 
         [runtime]
         type = "docker"

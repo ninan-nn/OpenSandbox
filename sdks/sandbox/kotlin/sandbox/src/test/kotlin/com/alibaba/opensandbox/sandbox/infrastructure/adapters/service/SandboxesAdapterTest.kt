@@ -118,6 +118,7 @@ class SandboxesAdapterTest {
                 extensions = extensions,
                 volumes = null,
                 secureAccess = true,
+                snapshotId = null,
             )
 
         // Verify request
@@ -180,6 +181,8 @@ class SandboxesAdapterTest {
                 networkPolicy = null,
                 extensions = emptyMap(),
                 volumes = null,
+                secureAccess = false,
+                snapshotId = null,
             )
 
         assertEquals("manual-sbx", result.id)
@@ -213,6 +216,7 @@ class SandboxesAdapterTest {
             networkPolicy = null,
             extensions = emptyMap(),
             volumes = null,
+            secureAccess = false,
             snapshotId = "snap-123",
         )
 
@@ -251,6 +255,7 @@ class SandboxesAdapterTest {
             networkPolicy = null,
             extensions = emptyMap(),
             volumes = null,
+            secureAccess = false,
             snapshotId = "snap-123",
         )
 
@@ -458,6 +463,8 @@ class SandboxesAdapterTest {
             networkPolicy = null,
             extensions = emptyMap(),
             volumes = volumes,
+            secureAccess = false,
+            snapshotId = null,
         )
 
         val request = mockWebServer.takeRequest()

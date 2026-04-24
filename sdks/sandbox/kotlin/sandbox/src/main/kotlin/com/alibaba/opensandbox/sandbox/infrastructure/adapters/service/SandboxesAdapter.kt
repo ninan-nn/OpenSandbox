@@ -71,62 +71,11 @@ internal class SandboxesAdapter(
         networkPolicy: NetworkPolicy?,
         extensions: Map<String, String>,
         volumes: List<Volume>?,
-    ): SandboxCreateResponse =
-        createSandbox(
-            spec = spec,
-            entrypoint = entrypoint,
-            env = env,
-            metadata = metadata,
-            timeout = timeout,
-            resource = resource,
-            networkPolicy = networkPolicy,
-            extensions = extensions,
-            volumes = volumes,
-            platform = null,
-        )
-
-    override fun createSandbox(
-        spec: SandboxImageSpec?,
-        entrypoint: List<String>?,
-        env: Map<String, String>,
-        metadata: Map<String, String>,
-        timeout: Duration?,
-        resource: Map<String, String>,
-        networkPolicy: NetworkPolicy?,
-        extensions: Map<String, String>,
-        volumes: List<Volume>?,
-        platform: PlatformSpec?,
-    ): SandboxCreateResponse {
-        return createSandbox(
-            spec = spec,
-            entrypoint = entrypoint,
-            env = env,
-            metadata = metadata,
-            timeout = timeout,
-            resource = resource,
-            networkPolicy = networkPolicy,
-            extensions = extensions,
-            volumes = volumes,
-            platform = platform,
-            secureAccess = false,
-        )
-    }
-
-    override fun createSandbox(
-        spec: SandboxImageSpec,
-        entrypoint: List<String>,
-        env: Map<String, String>,
-        metadata: Map<String, String>,
-        timeout: Duration?,
-        resource: Map<String, String>,
-        networkPolicy: NetworkPolicy?,
-        extensions: Map<String, String>,
-        volumes: List<Volume>?,
         platform: PlatformSpec?,
         secureAccess: Boolean,
         snapshotId: String?,
     ): SandboxCreateResponse {
-        logger.info("Creating sandbox with image: {}", spec.image)
+        logger.info("Creating sandbox with startup source: {}", spec?.image ?: snapshotId)
 
         return try {
             val createRequest =

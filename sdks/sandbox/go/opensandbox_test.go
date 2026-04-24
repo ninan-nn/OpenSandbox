@@ -155,7 +155,7 @@ func TestCreateSandbox_SecureAccess(t *testing.T) {
 	})
 
 	_, err := client.CreateSandbox(context.Background(), CreateSandboxRequest{
-		Image:          ImageSpec{URI: "python:3.12"},
+		Image:          &ImageSpec{URI: "python:3.12"},
 		Entrypoint:     []string{"/bin/sh"},
 		ResourceLimits: ResourceLimits{"cpu": "500m"},
 		SecureAccess:   true,

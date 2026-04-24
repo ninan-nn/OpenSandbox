@@ -209,6 +209,7 @@ def test_sync_create_passes_new_signature_keywords_even_when_unused(
             extensions,
             volumes,
             platform=None,
+            secure_access=False,
             snapshot_id=None,
         ):
             assert spec is not None
@@ -221,6 +222,7 @@ def test_sync_create_passes_new_signature_keywords_even_when_unused(
             assert isinstance(extensions, dict)
             assert volumes is None
             assert platform is None
+            assert secure_access is False
             assert snapshot_id is None
             return _CreateResponse()
 
@@ -282,6 +284,7 @@ def test_sync_create_restore_from_snapshot_passes_snapshot_id(
             extensions,
             volumes,
             platform=None,
+            secure_access=False,
             snapshot_id=None,
         ):
             assert isinstance(env, dict)
@@ -292,6 +295,7 @@ def test_sync_create_restore_from_snapshot_passes_snapshot_id(
             assert isinstance(extensions, dict)
             assert volumes is None
             assert platform is None
+            assert secure_access is False
             assert snapshot_id == "snap-123"
             assert spec is None
             assert entrypoint == ["tail", "-f", "/dev/null"]
@@ -348,6 +352,7 @@ def test_sync_create_restore_from_snapshot_preserves_custom_entrypoint(
             extensions,
             volumes,
             platform=None,
+            secure_access=False,
             snapshot_id=None,
         ):
             assert isinstance(env, dict)
@@ -358,6 +363,7 @@ def test_sync_create_restore_from_snapshot_preserves_custom_entrypoint(
             assert isinstance(extensions, dict)
             assert volumes is None
             assert platform is None
+            assert secure_access is False
             assert snapshot_id == "snap-123"
             assert spec is None
             assert entrypoint == ["python", "app.py"]
