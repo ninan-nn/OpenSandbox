@@ -346,8 +346,8 @@ async def test_create_preserves_manual_cleanup_timeout(
     assert sandbox.id == "sbx-created"
     assert len(sandbox_service.create_calls) == 1
     args, kwargs = sandbox_service.create_calls[0]
-    assert args[4] is None
-    assert kwargs == {}
+    assert args == ()
+    assert kwargs["timeout"] is None
 
 
 @pytest.mark.asyncio
