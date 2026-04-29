@@ -259,7 +259,7 @@ async def pause_sandbox(
     Pause execution while retaining state.
 
     Pauses a running sandbox while preserving its state.
-    Poll GET /sandboxes/{sandboxId} to track state transition to Paused.
+    Poll GET /sandboxes/{sandboxId} to track state transition through Pausing and eventually Paused.
 
     Args:
         sandbox_id: Unique sandbox identifier
@@ -296,7 +296,7 @@ async def resume_sandbox(
     Resume a paused sandbox.
 
     Resumes execution of a paused sandbox.
-    Poll GET /sandboxes/{sandboxId} to track state transition to Running.
+    Poll GET /sandboxes/{sandboxId} to track state transition through Resuming and eventually Running.
 
     Args:
         sandbox_id: Unique sandbox identifier
@@ -492,6 +492,7 @@ async def get_sandbox_endpoint(
     sandbox_id: str,
     port: int,
     use_server_proxy: bool = Query(False, description="Whether to return a server-proxied URL"),
+    expires: Optional[int] = Query(None, description="Request a signed route token with this Unix epoch second expiration. Requires ingress gateway with secure_access configured."),
     x_request_id: Optional[str] = Header(None, alias="X-Request-ID", description="Unique request identifier for tracing"),
 ) -> Endpoint:
     """
@@ -501,21 +502,29 @@ async def get_sandbox_endpoint(
     within the sandbox. The service must be listening on the specified port inside the sandbox
     for the endpoint to be available.
 
+    When the ``expires`` query parameter is provided, the endpoint is wrapped in a
+    cryptographically signed route token (OSEP-0011) instead of returning a plain URL.
+    This requires the ingress gateway to be configured with secure_access signing keys.
+
     Args:
         request: FastAPI request object
         sandbox_id: Unique sandbox identifier
         port: Port number where the service is listening inside the sandbox (1-65535)
         use_server_proxy: Whether to return a server-proxied URL
+        expires: Unix epoch seconds for signed route token expiration. Must be a
+            non-negative uint64 value. When omitted or invalid, a plain (unsigned)
+            endpoint is returned.
         x_request_id: Unique request identifier for tracing (optional; server generates if omitted).
 
     Returns:
         Endpoint: Public endpoint URL
 
     Raises:
-        HTTPException: If sandbox not found or endpoint not available
+        HTTPException: If sandbox not found, endpoint not available, or signed
+            routes are not supported by the runtime/configuration (400).
     """
     # Delegate to the service layer for endpoint resolution
-    endpoint = sandbox_service.get_endpoint(sandbox_id, port)
+    endpoint = sandbox_service.get_endpoint(sandbox_id, port, expires=expires)
 
     if use_server_proxy:
         # Prefer configured external address when available.

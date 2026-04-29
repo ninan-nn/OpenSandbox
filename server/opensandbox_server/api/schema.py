@@ -346,7 +346,7 @@ class SandboxStatus(BaseModel):
     """
     state: str = Field(
         ...,
-        description="Current lifecycle state (Pending, Running, Pausing, Paused, Stopping, Terminated, Failed)",
+        description="Current lifecycle state (Pending, Running, Pausing, Paused, Resuming, Stopping, Terminated, Failed)",
     )
     reason: Optional[str] = Field(
         None,
@@ -764,6 +764,8 @@ class Endpoint(BaseModel):
         default=None,
         description="Optional headers required when accessing the endpoint (e.g., for header-based routing).",
     )
+    class Config:
+        populate_by_name = True
 
 
 # ============================================================================
