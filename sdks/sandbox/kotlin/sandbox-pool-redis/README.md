@@ -65,6 +65,8 @@ try {
   sandbox creation spec, warmup behavior, idle timeout, and OpenSandbox service endpoint. If a deployment
   changes the sandbox definition, use a new `poolName` or `keyPrefix` and drain the old pool.
 - Each process must use a unique `ownerId`.
+- `maxIdle` is the target/cap for ready idle sandboxes. It is not a global limit
+  on borrowed sandboxes or sandboxes created by `AcquirePolicy.DIRECT_CREATE`.
 - Configure Redis connection details, TLS, ACL, timeout, pooling, and monitoring through Jedis.
 - Pass a thread-safe Jedis client. `JedisPooled` is recommended for production use.
 - `resize(maxIdle)` can be called from any node. The target is written to Redis, and the current

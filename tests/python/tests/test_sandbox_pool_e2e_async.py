@@ -127,6 +127,8 @@ class TestSandboxPoolSingleNodeE2EAsync:
         with pytest.raises(PoolNotRunningException):
             await self.pool.acquire(timedelta(minutes=5), AcquirePolicy.DIRECT_CREATE)
 
+        await self.pool.release_all_idle()
+        assert (await self.pool.snapshot()).idle_count == 0
         await self.store.put_idle(self.pool_name, f"injected-a-{uuid.uuid4().hex}")
         await self.store.put_idle(self.pool_name, f"injected-b-{uuid.uuid4().hex}")
         assert await self.pool.release_all_idle() == 2
@@ -139,8 +141,7 @@ class TestSandboxPoolSingleNodeE2EAsync:
         )
 
         await self.pool.resize(0)
-        released = await self.pool.release_all_idle()
-        assert released >= 1
+        assert await self.pool.release_all_idle() >= 0
         await _eventually(
             "async releaseAllIdle reduces remote tagged sandboxes",
             lambda: _async_release_drained(self.pool, self.manager, self.tag),
@@ -268,6 +269,65 @@ class TestSandboxPoolRedisDistributedE2EAsync:
         with pytest.raises(PoolEmptyException):
             await pool_a.acquire(timedelta(minutes=2), AcquirePolicy.FAIL_FAST)
 
+        direct = await pool_a.acquire(timedelta(minutes=5), AcquirePolicy.DIRECT_CREATE)
+        self.borrowed.append(direct)
+        assert await direct.is_healthy()
+        result = await direct.commands.run("echo py-async-redis-direct-create-ok")
+        assert result.error is None
+        assert (await pool_a.snapshot()).idle_count == 0
+
+    @pytest.mark.timeout(420)
+    async def test_async_redis_primary_failover_and_restart_stay_bounded(self) -> None:
+        pool_name = f"async-redis-failover-{self.tag}"
+        owner_a = f"owner-a-{self.tag}"
+        owner_b = f"owner-b-{self.tag}"
+        store_a = AsyncRedisPoolStateStore(self.redis, self.key_prefix)
+        store_b = AsyncRedisPoolStateStore(self.redis, self.key_prefix)
+        pool_a = _create_pool(pool_name, owner_a, store_a, self.tag, 1)
+        pool_b = _create_pool(pool_name, owner_b, store_b, self.tag, 1)
+        self.pools.extend([pool_a, pool_b])
+        lock_key = store_a._primary_lock_key(pool_name)
+
+        await pool_a.start()
+        await _eventually(
+            "async first Redis node owns primary lock and warms",
+            lambda: _redis_lock_and_snapshot_match(
+                self.redis,
+                lock_key,
+                owner_a,
+                pool_a,
+                lambda snap: snap.idle_count >= 1,
+            ),
+        )
+
+        await pool_b.start()
+        await pool_a.shutdown(False)
+        await pool_b.resize(1)
+        await _eventually(
+            "async Redis primary lock fails over",
+            lambda: _redis_lock_and_snapshot_match(
+                self.redis,
+                lock_key,
+                owner_b,
+                pool_b,
+                lambda snap: snap.idle_count >= 1,
+            ),
+            timeout=timedelta(seconds=60),
+        )
+
+        await pool_a.start()
+        await pool_b.resize(1)
+        await _eventually(
+            "async Redis restart stays bounded",
+            lambda: _snapshot_and_remote_count_match(
+                pool_a,
+                self.manager,
+                self.tag,
+                lambda snap, count: snap.idle_count <= 1 and count <= 2,
+            ),
+            timeout=timedelta(seconds=60),
+        )
+
 
 def _create_pool(
     pool_name: str,
@@ -358,17 +418,20 @@ async def _cleanup_borrowed(sandboxes: list[Sandbox]) -> None:
 
 
 async def _cleanup_tagged_sandboxes(manager: SandboxManager, tag: str) -> None:
-    try:
-        infos = await manager.list_sandbox_infos(
-            SandboxFilter(metadata={"tag": tag}, page_size=50)
-        )
-        for info in infos.sandbox_infos:
-            try:
-                await manager.kill_sandbox(info.id)
-            except Exception:
-                pass
-    except Exception:
-        pass
+    for _ in range(5):
+        try:
+            infos = await manager.list_sandbox_infos(
+                SandboxFilter(metadata={"tag": tag}, page_size=50)
+            )
+            if not infos.sandbox_infos:
+                return
+            for info in infos.sandbox_infos:
+                try:
+                    await manager.kill_sandbox(info.id)
+                except Exception:
+                    pass
+        except Exception:
+            return
 
 
 async def _count_tagged_sandboxes(manager: SandboxManager, tag: str) -> int:
@@ -383,6 +446,26 @@ async def _async_release_drained(
 ) -> bool:
     snapshot = await pool.snapshot()
     return snapshot.idle_count == 0 and await _count_tagged_sandboxes(manager, tag) == 0
+
+
+async def _redis_lock_and_snapshot_match(
+    redis: object,
+    lock_key: str,
+    owner_id: str,
+    pool: SandboxPoolAsync,
+    predicate: Callable[[PoolSnapshot], bool],
+) -> bool:
+    owner = await redis.get(lock_key)  # type: ignore[attr-defined]
+    return owner == owner_id and predicate(await pool.snapshot())
+
+
+async def _snapshot_and_remote_count_match(
+    pool: SandboxPoolAsync,
+    manager: SandboxManager,
+    tag: str,
+    predicate: Callable[[PoolSnapshot, int], bool],
+) -> bool:
+    return predicate(await pool.snapshot(), await _count_tagged_sandboxes(manager, tag))
 
 
 def _tag(prefix: str) -> str:

@@ -43,6 +43,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -165,6 +166,20 @@ public class SandboxPoolRedisDistributedE2ETest extends BaseE2ETest {
         assertThrows(
                 PoolEmptyException.class,
                 () -> poolA.acquire(Duration.ofMinutes(2), AcquirePolicy.FAIL_FAST));
+
+        Sandbox direct = poolA.acquire(Duration.ofMinutes(5), AcquirePolicy.DIRECT_CREATE);
+        borrowed.add(direct);
+        assertTrue(
+                direct.isHealthy(), "direct create should still work when shared maxIdle is zero");
+        Execution directExecution =
+                direct.commands()
+                        .run(RunCommandRequest.builder().command("echo redis-direct-ok").build());
+        assertNotNull(directExecution);
+        assertNull(directExecution.getError());
+        assertEquals(
+                0,
+                poolA.snapshot().getIdleCount(),
+                "DIRECT_CREATE must not repopulate the shared idle store");
     }
 
     @Test
@@ -310,7 +325,47 @@ public class SandboxPoolRedisDistributedE2ETest extends BaseE2ETest {
         assertEquals(0, store.snapshotCounters(poolName).getIdleCount());
     }
 
+    @Test
+    @DisplayName("Redis store drops lost-lock warmup orphan and recovers")
+    @Timeout(value = 7, unit = TimeUnit.MINUTES)
+    void testLostLockWindowDropsWarmupOrphanAndRecovers() throws Exception {
+        tag = "e2e-redis-renew-window-" + UUID.randomUUID().toString().substring(0, 8);
+        String poolName = "redis-renew-window-" + tag;
+        sandboxManager = SandboxManager.builder().connectionConfig(sharedConnectionConfig).build();
+
+        AtomicBoolean droppedOnce = new AtomicBoolean(false);
+        RedisPoolStateStore store = new RedisPoolStateStore(redis, keyPrefix);
+        String lockKey = poolKey(poolName, "lock");
+        SandboxPool pool =
+                createPoolBuilder(poolName, "owner-a-" + tag, store, 1)
+                        .warmupSandboxPreparer(
+                                sandbox -> {
+                                    if (droppedOnce.compareAndSet(false, true)) {
+                                        redis.del(lockKey);
+                                    }
+                                })
+                        .build();
+        pools.add(pool);
+
+        pool.start();
+        eventually(
+                "Redis-backed pool recovers after losing primary lock during warmup",
+                Duration.ofSeconds(90),
+                Duration.ofMillis(500),
+                () -> pool.snapshot().getIdleCount() == 1);
+        eventually(
+                "lost-lock orphan cleanup keeps remote tagged count bounded",
+                Duration.ofSeconds(60),
+                Duration.ofSeconds(1),
+                () -> countTaggedSandboxes(tag) == 1);
+    }
+
     private SandboxPool createPool(
+            String poolName, String ownerId, RedisPoolStateStore store, int maxIdle) {
+        return createPoolBuilder(poolName, ownerId, store, maxIdle).build();
+    }
+
+    private SandboxPool.Builder createPoolBuilder(
             String poolName, String ownerId, RedisPoolStateStore store, int maxIdle) {
         PoolCreationSpec creationSpec =
                 PoolCreationSpec.builder()
@@ -336,28 +391,54 @@ public class SandboxPoolRedisDistributedE2ETest extends BaseE2ETest {
                 .creationSpec(creationSpec)
                 .reconcileInterval(RECONCILE_INTERVAL)
                 .primaryLockTtl(PRIMARY_LOCK_TTL)
-                .drainTimeout(DRAIN_TIMEOUT)
-                .build();
+                .drainTimeout(DRAIN_TIMEOUT);
     }
 
     private void cleanupTaggedSandboxes(String cleanupTag) {
-        try {
-            PagedSandboxInfos infos =
-                    sandboxManager.listSandboxInfos(
-                            SandboxFilter.builder()
-                                    .metadata(Map.of("tag", cleanupTag))
-                                    .pageSize(50)
-                                    .build());
-            infos.getSandboxInfos()
-                    .forEach(
-                            info -> {
-                                try {
-                                    sandboxManager.killSandbox(info.getId());
-                                } catch (Exception ignored) {
-                                }
-                            });
-        } catch (Exception ignored) {
+        for (int i = 0; i < 5; i++) {
+            try {
+                PagedSandboxInfos infos =
+                        sandboxManager.listSandboxInfos(
+                                SandboxFilter.builder()
+                                        .metadata(Map.of("tag", cleanupTag))
+                                        .pageSize(50)
+                                        .build());
+                if (infos.getSandboxInfos().isEmpty()) {
+                    return;
+                }
+                infos.getSandboxInfos()
+                        .forEach(
+                                info -> {
+                                    try {
+                                        sandboxManager.killSandbox(info.getId());
+                                    } catch (Exception ignored) {
+                                    }
+                                });
+            } catch (Exception ignored) {
+                return;
+            }
         }
+    }
+
+    private int countTaggedSandboxes(String queryTag) {
+        if (sandboxManager == null || queryTag == null || queryTag.isBlank()) {
+            return 0;
+        }
+        PagedSandboxInfos infos =
+                sandboxManager.listSandboxInfos(
+                        SandboxFilter.builder()
+                                .metadata(Map.of("tag", queryTag))
+                                .pageSize(50)
+                                .build());
+        return infos.getSandboxInfos().size();
+    }
+
+    private String poolKey(String poolName, String suffix) {
+        String tag =
+                java.util.Base64.getUrlEncoder()
+                        .withoutPadding()
+                        .encodeToString(poolName.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        return keyPrefix + ":{" + tag + "}:" + suffix;
     }
 
     private void cleanupRedisKeys() {

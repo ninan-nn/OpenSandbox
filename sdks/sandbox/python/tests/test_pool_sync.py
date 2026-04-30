@@ -5,6 +5,7 @@ import time
 from datetime import timedelta
 from typing import Any, cast
 
+import httpx
 import pytest
 
 from opensandbox.config.connection_sync import ConnectionConfigSync
@@ -84,7 +85,7 @@ def test_start_warms_idle_and_resize_zero_shrinks() -> None:
         pool.shutdown(False)
 
 
-def test_graceful_shutdown_is_bounded_by_drain_timeout_during_warmup() -> None:
+def test_graceful_shutdown_waits_for_running_warmup_before_stop() -> None:
     FakeSandbox.reset()
     entered_preparer = threading.Event()
     release_preparer = threading.Event()
@@ -112,14 +113,76 @@ def test_graceful_shutdown_is_bounded_by_drain_timeout_during_warmup() -> None:
     try:
         assert entered_preparer.wait(timeout=2)
 
+        def release_after_delay() -> None:
+            time.sleep(0.05)
+            release_preparer.set()
+
+        release_thread = threading.Thread(target=release_after_delay)
+        release_thread.start()
         started = time.monotonic()
         pool.shutdown(graceful=True)
         elapsed = time.monotonic() - started
+        release_thread.join(timeout=1)
 
-        assert elapsed < 1.0
+        assert elapsed >= 0.04
         assert pool.snapshot().lifecycle_state.value == "STOPPED"
     finally:
         release_preparer.set()
+        pool.shutdown(False)
+
+
+def test_graceful_shutdown_restart_does_not_reuse_stop_event() -> None:
+    pool = _create_pool(max_idle=0)
+    pool.start()
+    first_stop_event = pool._stop_event
+
+    try:
+        pool.shutdown(graceful=True)
+        assert first_stop_event.is_set()
+
+        pool.start()
+
+        assert pool._stop_event is not first_stop_event
+        assert first_stop_event.is_set()
+    finally:
+        pool.shutdown(False)
+
+
+def test_user_managed_transport_is_preserved_for_pool_resources() -> None:
+    transport = _SyncTransport()
+    connection_config = ConnectionConfigSync(transport=transport)
+    manager_configs: list[ConnectionConfigSync] = []
+    sandbox_configs: list[ConnectionConfigSync] = []
+
+    class CapturingSandbox(FakeSandbox):
+        @classmethod
+        def create(cls, *args: Any, **kwargs: Any) -> CapturingSandbox:
+            sandbox_configs.append(kwargs["connection_config"])
+            return cls("created-with-custom-transport")
+
+    def manager_factory(config: ConnectionConfigSync) -> FakeManager:
+        manager_configs.append(config)
+        return FakeManager()
+
+    pool = SandboxPoolSync(
+        pool_name="pool",
+        owner_id="owner-1",
+        max_idle=0,
+        state_store=InMemoryPoolStateStore(),
+        connection_config=connection_config,
+        creation_spec=PoolCreationSpec(image="ubuntu:22.04"),
+        sandbox_manager_factory=manager_factory,  # type: ignore[arg-type,return-value]
+        sandbox_factory=CapturingSandbox,  # type: ignore[arg-type]
+    )
+    pool.start()
+    try:
+        pool.acquire()
+
+        assert manager_configs[0].transport is transport
+        assert not manager_configs[0]._owns_transport
+        assert sandbox_configs[0].transport is transport
+        assert not sandbox_configs[0]._owns_transport
+    finally:
         pool.shutdown(False)
 
 
@@ -198,3 +261,8 @@ class FakeSandbox:
 
     def close(self) -> None:
         self.closed = True
+
+
+class _SyncTransport(httpx.BaseTransport):
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, request=request)

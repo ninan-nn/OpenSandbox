@@ -257,6 +257,8 @@ pool.shutdown(true);
 Pool lifecycle semantics:
 - `acquire()` is only allowed when pool state is `RUNNING`.
 - In `DRAINING` / `STOPPED`, `acquire()` throws `PoolNotRunningException`.
+- `maxIdle` is the target/cap for ready idle sandboxes. It is not a global limit
+  on borrowed sandboxes or sandboxes created by `AcquirePolicy.DIRECT_CREATE`.
 - `ownerId` is the lock owner identity (node/process id), not the pool identifier.
   If omitted, SDK auto-generates a UUID-based default.
 - Use `warmupSandboxPreparer(...)` if you need to prepare a sandbox after warmup readiness succeeds and before it is put into the idle pool.
