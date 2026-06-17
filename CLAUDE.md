@@ -11,6 +11,13 @@ Use this file as the Claude Code entry point for the OpenSandbox monorepo. Treat
 - Kubernetes changes: `kubernetes/AGENTS.md`
 - Areas without a local `AGENTS.md`: read the nearest `README.md`, `DEVELOPMENT.md`, and relevant CI workflow.
 
+## Documentation
+
+- Docs site source: `docs/` (VitePress, deployed to open-sandbox.ai)
+- Docs are the **single source of truth** for user-facing content. Monorepo READMEs are slim pointers to docs pages.
+- When changing user-visible behavior, update `docs/` — not just the README.
+- Full documentation rules: see `AGENTS.md` → "Documentation Rules" section.
+
 ## Repository Map
 
 - `server/`: FastAPI lifecycle control plane, Docker/Kubernetes runtime integration, snapshot metadata, and server tests
