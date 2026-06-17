@@ -176,7 +176,7 @@ kubectl delete crd sandboxsnapshots.sandbox.opensandbox.io
 - Docker 运行时支持 cgroup 级别的冻结（`pause`/`resume`），但不会在重启之间持久化文件系统状态。
 
 
-## 与 [kubernates-sigs/agent-sandbox](kubernates-sigs/agent-sandbox) 的关系
+## 与 [kubernetes-sigs/agent-sandbox](https://github.com/kubernetes-sigs/agent-sandbox) 的关系
 
 BatchSandbox 并非重复实现 Agent-Sandbox 的基础功能，而是作为其补充，提供了额外的增强能力：
 

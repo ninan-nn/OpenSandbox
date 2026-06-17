@@ -2,4 +2,4 @@
 
 Run Qwen Code inside an OpenSandbox container through an OpenAI-compatible endpoint.
 
-> **Full documentation**: https://open-sandbox.ai/examples/qwen-code
+> **Full documentation**: [docs/examples/qwen-code.md](../../docs/examples/qwen-code.md)

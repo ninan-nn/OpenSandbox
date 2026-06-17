@@ -2,4 +2,4 @@
 
 Demonstrates how to create and access an All-in-One (AIO) Sandbox via OpenSandbox.
 
-> **Full documentation**: https://open-sandbox.ai/examples/aio-sandbox
+> **Full documentation**: [docs/examples/aio-sandbox.md](../../docs/examples/aio-sandbox.md)

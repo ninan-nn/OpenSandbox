@@ -2,4 +2,4 @@
 
 Complete demonstration of running Python code using the Code Interpreter SDK.
 
-> **Full documentation**: https://open-sandbox.ai/examples/code-interpreter
+> **Full documentation**: [docs/examples/code-interpreter.md](../../docs/examples/code-interpreter.md)

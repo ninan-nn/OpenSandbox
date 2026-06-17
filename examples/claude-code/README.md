@@ -2,4 +2,4 @@
 
 Access Claude via the claude-cli npm package in OpenSandbox.
 
-> **Full documentation**: https://open-sandbox.ai/examples/claude-code
+> **Full documentation**: [docs/examples/claude-code.md](../../docs/examples/claude-code.md)

@@ -68,13 +68,19 @@ Never:
 
 | Content type | Source of truth | The other side |
 |---|---|---|
-| User-facing docs (SDKs, components, CLI, guides, examples) | `docs/` (VitePress site at open-sandbox.ai) | README.md is a slim pointer: title + one-line description + link to docs site + install command |
+| User-facing guides, architecture, Kubernetes guides, API reference, and examples | `docs/` (VitePress source and open-sandbox.ai) | READMEs may link to matching versioned `docs/*.md` files instead of duplicating long-form docs |
+| Root and package READMEs (GitHub homepage, SDK packages, CLI package, Helm charts) | README.md in the package or repo root | Keep package-level install, quick start, and links to versioned docs; avoid unnecessary duplication |
+| Component and module READMEs | Component/module directory | Keep local build/run context and link to versioned `docs/` pages for user-facing guides |
 | Technical design proposals (OSEPs) | `oseps/` (GitHub) | `docs/community/oseps.md` is an index page linking to GitHub |
 | CONTRIBUTING, CODE_OF_CONDUCT, DEVELOPMENT | repo root / component directory (GitHub) | `docs/community/` links to GitHub, does not duplicate |
 
 **When modifying user-visible behavior**: update the corresponding page under `docs/` — never update only the README.
 
-**When adding a new SDK, component, or example**: create a `docs/` page as the primary documentation and a slim README pointing to it.
+**When adding a new example**: create or update a `docs/examples/` page for the full documentation and keep runnable code under `examples/`.
+
+**When adding a new SDK, CLI package, Helm chart, or publishable component**: keep a package README that works on package registries and link it to the corresponding `docs/` page.
+
+**When linking from README files to project documentation**: prefer repository-relative links to `docs/*.md` so links match the checked-out branch or tag. Use `https://open-sandbox.ai` as the public site entry point, not as the only source link from versioned code directories.
 
 ### Docs site structure
 

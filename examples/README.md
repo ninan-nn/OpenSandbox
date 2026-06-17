@@ -2,4 +2,4 @@
 
 Examples for common OpenSandbox use cases. Each subdirectory contains runnable code and documentation.
 
-> **Full documentation**: https://open-sandbox.ai/examples/
+> **Full documentation**: [docs/examples/index.md](../docs/examples/index.md)

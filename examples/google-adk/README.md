@@ -2,4 +2,4 @@
 
 Integrate Google Agent Development Kit (ADK) with OpenSandbox, using an ADK agent to drive tool calls that execute inside a sandbox.
 
-> **Full documentation**: https://open-sandbox.ai/examples/google-adk
+> **Full documentation**: [docs/examples/google-adk.md](../../docs/examples/google-adk.md)

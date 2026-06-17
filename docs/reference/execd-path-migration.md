@@ -185,5 +185,5 @@ execd and bootstrap.sh are now installed to `/opt/opensandbox/` instead of
 `/opt/opensandbox/bin/`. code-interpreter image users must upgrade to `>=v1.1.0`.
 Custom Pool CR templates and custom execd images require updates.
 
-See [execd Path Migration Guide](docs/reference/execd-path-migration.md) for full details.
+See [execd Path Migration Guide](/reference/execd-path-migration) for full details.
 ```

@@ -2,4 +2,4 @@
 
 Launch Xvfb + x11vnc + fluxbox in OpenSandbox to provide a VNC-accessible desktop environment.
 
-> **Full documentation**: https://open-sandbox.ai/examples/desktop
+> **Full documentation**: [docs/examples/desktop.md](../../docs/examples/desktop.md)
