@@ -16,6 +16,7 @@ You can build the image from source or pull it from Docker Hub.
 ### Build from source
 
 ```shell
+cd examples/chrome
 docker build -t opensandbox/chrome .
 ```
 

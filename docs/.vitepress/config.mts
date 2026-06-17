@@ -7,6 +7,7 @@ export default defineConfig({
   lastUpdated: true,
   base: process.env.DOCS_BASE || "/",
   ignoreDeadLinks: [/^https?:\/\/localhost/],
+  srcExclude: ["README.md"],
 
   head: [
     ["link", { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" }],
@@ -38,6 +39,7 @@ export default defineConfig({
           { text: "CLI", link: "/cli/" },
           { text: "Components", link: "/components/" },
           { text: "Kubernetes", link: "/kubernetes/" },
+          { text: "Migration Guides", link: "/reference/execd-path-migration" },
         ],
       },
       { text: "Examples", link: "/examples/" },

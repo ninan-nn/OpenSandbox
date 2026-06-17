@@ -70,7 +70,7 @@ Never:
 |---|---|---|
 | User-facing guides, architecture, Kubernetes guides, API reference, and examples | `docs/` (VitePress source and open-sandbox.ai) | READMEs may link to matching versioned `docs/*.md` files instead of duplicating long-form docs |
 | Root and package READMEs (GitHub homepage, SDK packages, CLI package, Helm charts) | README.md in the package or repo root | Keep package-level install, quick start, and links to versioned docs; avoid unnecessary duplication |
-| Component and module READMEs | Component/module directory | Keep local build/run context and link to versioned `docs/` pages for user-facing guides |
+| Component and module READMEs | Component/module directory | Keep a minimal pointer to versioned `docs/` pages unless the directory is a publishable package or has no docs page |
 | Technical design proposals (OSEPs) | `oseps/` (GitHub) | `docs/community/oseps.md` is an index page linking to GitHub |
 | CONTRIBUTING, CODE_OF_CONDUCT, DEVELOPMENT | repo root / component directory (GitHub) | `docs/community/` links to GitHub, does not duplicate |
 
