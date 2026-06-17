@@ -66,21 +66,25 @@ Never:
 
 ### Content ownership — single source of truth
 
-| Content type | Source of truth | The other side |
+| Content type | Source of truth | Rule |
 |---|---|---|
-| User-facing guides, architecture, Kubernetes guides, API reference, and examples | `docs/` (VitePress source and open-sandbox.ai) | READMEs may link to matching versioned `docs/*.md` files instead of duplicating long-form docs |
-| Root and package READMEs (GitHub homepage, SDK packages, CLI package, Helm charts) | README.md in the package or repo root | Keep package-level install, quick start, and links to versioned docs; avoid unnecessary duplication |
-| Component and module READMEs | Component/module directory | Keep a minimal pointer to versioned `docs/` pages unless the directory is a publishable package or has no docs page |
-| Technical design proposals (OSEPs) | `oseps/` (GitHub) | `docs/community/oseps.md` is an index page linking to GitHub |
-| CONTRIBUTING, CODE_OF_CONDUCT, DEVELOPMENT | repo root / component directory (GitHub) | `docs/community/` links to GitHub, does not duplicate |
+| User and operations docs | `docs/` | Keep long-form docs here |
+| Root README | repo root `README.md` | GitHub homepage |
+| SDK, CLI, Helm, and other publishable package READMEs | package directory | Keep install, quick start, and package entry points |
+| Non-publishable component/module READMEs | component/module directory | Keep minimal pointers to `docs/` when a docs page exists |
+| Examples | `docs/examples/` + runnable code under `examples/` | Put docs in `docs/examples/`; keep example READMEs as thin pointers |
+| OSEPs | `oseps/` | `docs/community/oseps.md` only indexes GitHub proposals |
+| CONTRIBUTING, CODE_OF_CONDUCT, DEVELOPMENT | repo root / component directory | `docs/community/` links to them, does not duplicate them |
 
-**When modifying user-visible behavior**: update the corresponding page under `docs/` — never update only the README.
+**When modifying user-visible or operations-visible behavior**: update `docs/` first.
 
-**When adding a new example**: create or update a `docs/examples/` page for the full documentation and keep runnable code under `examples/`.
+**When editing READMEs**: avoid long-form docs outside root or publishable package READMEs.
 
-**When adding a new SDK, CLI package, Helm chart, or publishable component**: keep a package README that works on package registries and link it to the corresponding `docs/` page.
+**When adding examples**: keep runnable code under `examples/`, and document it under `docs/examples/`.
 
-**When linking from README files to project documentation**: prefer repository-relative links to `docs/*.md` so links match the checked-out branch or tag. Use `https://open-sandbox.ai` as the public site entry point, not as the only source link from versioned code directories.
+**When linking from README files to docs**: prefer repository-relative `docs/*.md` links so links match the checked-out branch or tag. Use `https://open-sandbox.ai` as a public site entry point, not as the only source link from versioned code directories.
+
+**When handling localized READMEs**: do not add new localized copies for SDKs, examples, or non-special modules.
 
 ### Docs site structure
 
@@ -108,7 +112,7 @@ docs/
 - Links to source code or specs use full GitHub URLs.
 - Use VitePress custom containers (`::: tip`, `::: warning`, `::: info`) and code groups where appropriate.
 - Build and verify: `cd docs && pnpm docs:build` — must complete with zero errors.
-- The README.md in `docs/` is for docs-site contributors only (how to run dev server), not published on the site.
+- The README.md in `docs/` is for docs-site contributors only (how to run dev server), and must stay excluded from the published site.
 
 ## Review Focus
 
