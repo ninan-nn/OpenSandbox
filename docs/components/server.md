@@ -232,6 +232,7 @@ Extends sandbox TTL when traffic is observed (lifecycle proxy and/or ingress + o
 ### Code Quality
 
 ```bash
+cd server
 uv run ruff check        # Run linter
 uv run ruff check --fix  # Auto-fix issues
 uv run ruff format       # Format code
@@ -240,6 +241,7 @@ uv run ruff format       # Format code
 ### Testing
 
 ```bash
+cd server
 uv run pytest                                                              # Run all tests
 uv run pytest --cov=opensandbox_server --cov-report=term --cov-fail-under=80  # With coverage
 uv run pytest tests/test_docker_service.py::test_create_sandbox_requires_entrypoint  # Specific test

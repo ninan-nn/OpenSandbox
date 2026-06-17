@@ -190,7 +190,7 @@ curl -I https://github.com
     - `hooks/`: Side-effect import target; `init()` functions register startup hooks that run after iptables/MITM setup.
 
 ```bash
-# Run tests
+cd components/egress
 go test ./...
 ```
 

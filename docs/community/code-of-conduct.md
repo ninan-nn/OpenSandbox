@@ -1,33 +1,12 @@
 ---
 title: Code of Conduct
-description: OpenSandbox community code of conduct outlining expected behavior, unacceptable behavior, and reporting guidelines.
+description: OpenSandbox community code of conduct.
 ---
 
 # Code of Conduct
 
-We are committed to a welcoming, safe, and respectful community.
+The code of conduct is maintained in the repository root as the single source of truth.
 
-## Expected Behavior
-
-- Be respectful and inclusive.
-- Assume good intent; seek to understand.
-- Provide constructive feedback; critique code, not people.
-- Follow project guidelines and security practices.
-
-## Unacceptable Behavior
-
-- Harassment, personal attacks, or discriminatory language.
-- Publishing private information without consent.
-- Disruptive or aggressive behavior in any project space.
-
-## Scope
-
-This Code applies to all project spaces, including issues, pull requests, discussions, chat, and events.
-
-## Reporting
-
-Report incidents to: **conduct@opensandbox.io**. Include as much detail as possible (what happened, when/where, links, screenshots if applicable).
-
-## Enforcement
-
-Maintainers will investigate in good faith and may take appropriate action, including warnings, temporary bans, or removal from the community.
+<a href="https://github.com/opensandbox-group/OpenSandbox/blob/main/CODE_OF_CONDUCT.md" target="_blank">
+  Read the Code of Conduct on GitHub →
+</a>

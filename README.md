@@ -45,7 +45,7 @@
   <hr />
 </div>
 
-[Documentation](https://open-sandbox.ai/) | [中文文档](https://open-sandbox.ai/zh/)
+[Documentation](https://open-sandbox.ai/)
 
 OpenSandbox is a **general-purpose sandbox platform** for AI applications, offering multi-language SDKs, unified sandbox APIs, and Docker/Kubernetes runtimes for scenarios like Coding Agents, GUI Agents, Agent Evaluation, AI Code Execution, and RL Training.
 
@@ -58,8 +58,8 @@ OpenSandbox is now listed in the [CNCF Landscape](https://landscape.cncf.io/?ite
 - **Sandbox Runtime**: Built-in lifecycle management supporting Docker and [high-performance Kubernetes runtime](./kubernetes), enabling both local runs and large-scale distributed scheduling.
 - **Sandbox Environments**: Built-in Command, Filesystem, and Code Interpreter implementations. Examples cover Coding Agents (e.g., Claude Code), browser automation (Chrome, Playwright), and desktop environments (VNC, VS Code).
 - **Network Policy**: Unified [Ingress Gateway](components/ingress) with multiple routing strategies plus per-sandbox [egress controls](components/egress).
-- **Credential Vault**: [Secure credential injection](docs/credential-vault.md) for sandbox outbound requests without exposing real secrets to workloads.
-- **Strong Isolation**: Supports secure container runtimes like gVisor, Kata Containers, and Firecracker microVM for enhanced isolation between sandbox workloads and the host. See [Secure Container Runtime Guide](docs/secure-container.md) for details.
+- **Credential Vault**: [Secure credential injection](docs/guides/credential-vault.md) for sandbox outbound requests without exposing real secrets to workloads.
+- **Strong Isolation**: Supports secure container runtimes like gVisor, Kata Containers, and Firecracker microVM for enhanced isolation between sandbox workloads and the host. See [Secure Container Runtime Guide](docs/guides/secure-container.md) for details.
 
 ## SDKs
 
@@ -233,8 +233,8 @@ async def main() -> None:
         print(result.result[0].text) # 4
         print(result.logs.stdout[0].text) # 3.11.14
 
-    # 7. Cleanup the sandbox
-    await sandbox.kill()
+        # 7. Cleanup the sandbox
+        await sandbox.kill()
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -290,13 +290,13 @@ For more details, please refer to [examples](examples/README.md) and the README 
 | [`tests/`](tests/) | Cross-component E2E tests                                        |
 | [`scripts/`](scripts/) | Development and maintenance scripts                              |
 
-For detailed architecture, see [docs/architecture.md](docs/architecture.md).
+For detailed architecture, see [Architecture](docs/architecture/).
 
 ## Documentation
 
-- [docs/architecture.md](docs/architecture.md) – Overall architecture & design philosophy
-- [docs/credential-vault.md](docs/credential-vault.md) - Credential Vault credential injection guide
-- [docs/release-verification.md](docs/release-verification.md) - Release signing and artifact verification
+- [Architecture](docs/architecture/) – Overall architecture & design philosophy
+- [Credential Vault](docs/guides/credential-vault.md) - Credential Vault credential injection guide
+- [Release Verification](docs/community/release-verification.md) - Release signing and artifact verification
 - [oseps/README.md](oseps/README.md) – OpenSandbox Enhancement Proposals
 - SDK
   - Sandbox base SDK ([Java/Kotlin SDK](sdks/sandbox/kotlin/README.md), [Python SDK](sdks/sandbox/python/README.md), [JavaScript/TypeScript SDK](sdks/sandbox/javascript/README.md), [C#/.NET SDK](sdks/sandbox/csharp/README.md)), [Go SDK](sdks/sandbox/go/README.md) - includes sandbox lifecycle, command execution, file operations

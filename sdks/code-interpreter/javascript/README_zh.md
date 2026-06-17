@@ -34,7 +34,7 @@ yarn add @alibaba-group/opensandbox-code-interpreter
 
 以下示例展示了如何创建带指定运行时配置的 Sandbox，并执行一段简单脚本。
 
-> **注意**: 在运行此示例之前，请确保 OpenSandbox 服务已启动。服务启动请参考根目录的 [README_zh.md](../../../docs/README_zh.md)。
+> **注意**: 在运行此示例之前，请确保 OpenSandbox 服务已启动。服务启动请参考根目录的 [README_zh.md](https://open-sandbox.ai/getting-started/)。
 
 ```ts
 import { ConnectionConfig, Sandbox } from "@alibaba-group/opensandbox";

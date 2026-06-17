@@ -93,7 +93,7 @@ async def main() -> None:
         )
         print(result.result[0].text)  # 4
 
-    await sandbox.kill()
+        await sandbox.kill()
 
 if __name__ == "__main__":
     asyncio.run(main())

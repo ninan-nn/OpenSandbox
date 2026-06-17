@@ -106,23 +106,23 @@ spec:
           command: [ "/bin/sh", "-c" ]
           args:
             - |
-              cp /workspace/server /opt/opensandbox/bin/task-executor && 
-              chmod +x /opt/opensandbox/bin/task-executor
+              cp /workspace/server /opt/opensandbox/task-executor && 
+              chmod +x /opt/opensandbox/task-executor
           volumeMounts:
             - name: opensandbox-bin
-              mountPath: /opt/opensandbox/bin
+              mountPath: /opt/opensandbox
         - name: execd-installer
           image: sandbox-registry.cn-zhangjiakou.cr.aliyuncs.com/opensandbox/execd:v1.0.19
           command: [ "/bin/sh", "-c" ]
           args:
             - |
-              cp ./execd /opt/opensandbox/bin/execd && 
-              cp ./bootstrap.sh /opt/opensandbox/bin/bootstrap.sh &&
-              chmod +x /opt/opensandbox/bin/execd &&
-              chmod +x /opt/opensandbox/bin/bootstrap.sh
+              cp ./execd /opt/opensandbox/execd && 
+              cp ./bootstrap.sh /opt/opensandbox/bootstrap.sh &&
+              chmod +x /opt/opensandbox/execd &&
+              chmod +x /opt/opensandbox/bootstrap.sh
           volumeMounts:
             - name: opensandbox-bin
-              mountPath: /opt/opensandbox/bin
+              mountPath: /opt/opensandbox
       containers:
         - name: sandbox
           image: sandbox-registry.cn-zhangjiakou.cr.aliyuncs.com/opensandbox/code-interpreter:v1.1.0
@@ -130,19 +130,19 @@ spec:
           - "/bin/sh"
           - "-c"
           - |
-            /opt/opensandbox/bin/task-executor -listen-addr=0.0.0.0:5758 >/tmp/task-executor.log 2>&1
+            /opt/opensandbox/task-executor -listen-addr=0.0.0.0:5758 >/tmp/task-executor.log 2>&1
           env:
           - name: SANDBOX_MAIN_CONTAINER
             value: main
           - name: EXECD_ENVS
             value: /opt/opensandbox/.env
           - name: EXECD
-            value: /opt/opensandbox/bin/execd
+            value: /opt/opensandbox/execd
           volumeMounts:
             - name: sandbox-storage
               mountPath: /var/lib/sandbox
             - name: opensandbox-bin
-              mountPath: /opt/opensandbox/bin
+              mountPath: /opt/opensandbox
       tolerations:
         - operator: "Exists"
   capacitySpec:
@@ -159,7 +159,7 @@ uv pip install opensandbox-server
 
 # replace with your k8s cluster config, kubeconfig etc.
 opensandbox-server init-config ~/.sandbox.toml --example k8s
-curl -o ~/batchsandbox-template.yaml https://raw.githubusercontent.com/opensandbox-group/OpenSandbox/main/server/example.batchsandbox-template.yaml
+curl -o ~/batchsandbox-template.yaml https://raw.githubusercontent.com/opensandbox-group/OpenSandbox/main/server/opensandbox_server/examples/example.batchsandbox-template.yaml
 
 opensandbox-server
 ```

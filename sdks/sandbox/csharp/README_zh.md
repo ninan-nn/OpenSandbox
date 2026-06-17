@@ -22,7 +22,7 @@ Install-Package Alibaba.OpenSandbox
 
 以下示例展示如何创建沙箱并执行 shell 命令。
 
-> **注意**：运行此示例之前，请确保 OpenSandbox 服务正在运行。有关启动说明，请参阅根目录的 [README_zh.md](../../../docs/README_zh.md)。
+> **注意**：运行此示例之前，请确保 OpenSandbox 服务正在运行。有关启动说明，请参阅根目录的 [README_zh.md](https://open-sandbox.ai/getting-started/)。
 
 ```csharp
 using OpenSandbox;
@@ -343,7 +343,7 @@ await sandbox.PatchEgressRulesAsync(new[]
 
 Credential Vault 可以由 egress sidecar 在出站请求中注入凭证，避免真实密钥进入沙箱环境变量、命令参数、文件或日志。创建沙箱时设置 `CredentialProxy = new CredentialProxyConfig { Enabled = true }`，然后通过 `sandbox.CreateCredentialVaultAsync(...)` / `PatchCredentialVaultAsync(...)` 写入 credentials 和 bindings。
 
-更多 auth 类型、binding 规则和 Git/curl 示例请参考 [Credential Vault](../../../docs/credential-vault_zh.md)。
+更多 auth 类型、binding 规则和 Git/curl 示例请参考 [Credential Vault](https://open-sandbox.ai/guides/credential-vault)。
 
 ### 5. 资源清理
 

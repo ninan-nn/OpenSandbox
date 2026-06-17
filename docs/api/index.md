@@ -21,7 +21,7 @@ Defines the complete lifecycle interfaces for creating, managing, and destroying
 - **Lifecycle States**: Supports transitions across Pending -> Running -> Pausing -> Paused -> Stopping -> Terminated, and error handling with `Failed`
 - **Resource & Runtime Configuration**: Specify CPU/memory/GPU resource limits, image startup `entrypoint`, optional `secureAccess`, environment variables, and opaque `extensions`
 - **Image Support**: Create sandboxes from public or private registries, including registry auth
-- **Timeout Management**: Mandatory `timeout` on creation with explicit renewal via API
+- **Timeout Management**: Optional `timeout` on creation (omit or set to `null` to disable automatic expiration) with explicit renewal via API
 - **Endpoint Access**: Retrieve public access endpoints for services running inside sandboxes, including required headers when secured access is enabled
 - **Snapshot Management**: Create snapshots from sandboxes, list snapshots, and delete snapshots
 

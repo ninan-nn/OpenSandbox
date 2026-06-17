@@ -168,7 +168,7 @@ kubectl create secret docker-registry registry-pull-secret \
 kubectl delete crd sandboxsnapshots.sandbox.opensandbox.io
 ```
 
-有关包括故障排除和失败场景在内的完整指南，请参见 [`docs/pause-resume.md`](../docs/pause-resume.md)。
+有关包括故障排除和失败场景在内的完整指南，请参见 [`docs/guides/pause-resume.md`](../docs/guides/pause-resume.md)。
 
 ## 运行时 API 支持说明
 

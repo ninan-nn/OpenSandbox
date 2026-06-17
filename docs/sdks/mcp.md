@@ -16,6 +16,7 @@ sandbox lifecycle management, command execution, and text file operations.
 ### Source
 
 ```bash
+cd sdks/mcp/sandbox/python
 uv sync
 uv run opensandbox-mcp
 ```

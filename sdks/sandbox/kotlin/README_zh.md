@@ -28,7 +28,7 @@ dependencies {
 
 以下示例展示了如何创建一个沙箱并执行 Shell 命令。
 
-> **注意**: 在运行此示例之前，请确保 OpenSandbox 服务已启动。服务启动请参考根目录的 [README_zh.md](../../../docs/README_zh.md)。
+> **注意**: 在运行此示例之前，请确保 OpenSandbox 服务已启动。服务启动请参考根目录的 [README_zh.md](https://open-sandbox.ai/getting-started/)。
 
 ```java
 import com.alibaba.opensandbox.sandbox.Sandbox;
@@ -373,4 +373,4 @@ sandbox.patchEgressRules(
 
 Credential Vault 可以由 egress sidecar 在出站请求中注入凭证，避免真实密钥进入沙箱环境变量、命令参数、文件或日志。创建沙箱时调用 `.credentialProxyEnabled(true)`，然后通过 `sandbox.credentialVault().create(...)` / `patch(...)` 写入 credentials 和 bindings。
 
-更多 auth 类型、binding 规则和 Git/curl 示例请参考 [Credential Vault](../../../docs/credential-vault_zh.md)。
+更多 auth 类型、binding 规则和 Git/curl 示例请参考 [Credential Vault](https://open-sandbox.ai/guides/credential-vault)。

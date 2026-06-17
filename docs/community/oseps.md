@@ -25,11 +25,14 @@ See the [OSEP contributing guide](https://github.com/opensandbox-group/OpenSandb
 | [OSEP-0010](https://github.com/opensandbox-group/OpenSandbox/blob/main/oseps/0010-opentelemetry-instrumentation.md) | OpenTelemetry Metrics and Logs (execd, egress, and ingress) | implementing | 2026-04-12 |
 | [OSEP-0011](https://github.com/opensandbox-group/OpenSandbox/blob/main/oseps/0011-secure-access-endpoint.md) | Secure Access on GetEndpoint and Signed Endpoint | implemented | 2026-04-25 |
 | [OSEP-0012](https://github.com/opensandbox-group/OpenSandbox/blob/main/oseps/0012-credential-vault.md) | Credential Vault and Credential Proxy | implementing | 2026-06-10 |
+| [OSEP-0012](https://github.com/opensandbox-group/OpenSandbox/blob/main/oseps/0012-multi-tenancy.md) | Multi-Tenancy Support for Kubernetes Runtime | draft | 2026-04-29 |
+| [OSEP-0013](https://github.com/opensandbox-group/OpenSandbox/blob/main/oseps/0013-isolated-execution-api.md) | Isolated Execution API | draft | 2026-06-06 |
 
 ## Status Definitions
 
 | Status | Meaning |
 |--------|---------|
+| **draft** | Proposal is under initial development, not yet accepted |
 | **provisional** | Proposal accepted in principle, design may still evolve |
 | **implementable** | Design is final and ready for implementation |
 | **implementing** | Implementation is in progress |

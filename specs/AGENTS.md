@@ -30,8 +30,6 @@ Regenerate docs output:
 
 ```bash
 node scripts/spec-doc/generate-spec.js
-cd docs
-pnpm docs:spec
 ```
 
 Lifecycle consumer validation:

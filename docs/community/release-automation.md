@@ -54,7 +54,7 @@ The script aligns with existing workflow triggers:
 
 ## Release Notes Format
 
-Generated notes follow `docs/RELEASE_NOTE_TEMPLATE.md` sections:
+Generated notes follow this section structure:
 
 - `## What's New`
 - `### ✨ Features`
