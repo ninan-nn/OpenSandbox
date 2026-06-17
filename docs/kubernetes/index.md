@@ -239,6 +239,7 @@ helm install opensandbox-controller \
 
 1. Build and push your images:
    ```sh
+   cd kubernetes
    make docker-build docker-push CONTROLLER_IMG=<some-registry>/opensandbox-controller:tag
    make docker-build-task-executor docker-push-task-executor TASK_EXECUTOR_IMG=<some-registry>/opensandbox-task-executor:tag
    ```

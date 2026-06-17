@@ -115,7 +115,13 @@ logs. Create the sandbox with `CredentialProxy` enabled, then write credentials
 and bindings through the sandbox helpers or `EgressClient`.
 
 ```go
-sandbox, err := manager.Create(ctx, opensandbox.SandboxCreateOptions{
+config := opensandbox.ConnectionConfig{
+    Domain:   "localhost:8080",
+    Protocol: "http",
+    APIKey:   "your-api-key",
+}
+
+sandbox, err := opensandbox.CreateSandbox(ctx, config, opensandbox.SandboxCreateOptions{
     Image: "python:3.11",
     NetworkPolicy: &opensandbox.NetworkPolicy{
         DefaultAction: "deny",

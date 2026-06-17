@@ -29,6 +29,7 @@ opensandbox-server
 
 ```shell
 uv pip install opensandbox
+cd examples/windows
 python main.py
 ```
 
@@ -138,6 +139,7 @@ or:
 **Solution**: Use the provided `main_fix_net.py` example, which patches the script at runtime and sets `NETWORK=slirp` for QEMU user-mode NAT:
 
 ```shell
+cd examples/windows
 python main_fix_net.py
 ```
 
@@ -160,6 +162,7 @@ Use a pre-warmed K8s pool for faster Windows sandbox startup.
 Apply the pool manifest (the image, resources, device mounts, and OEM scripts are pre-configured):
 
 ```shell
+cd examples/windows
 kubectl apply -f pool-win-example.yaml
 ```
 
@@ -175,6 +178,7 @@ opensandbox-server
 
 ```shell
 uv pip install opensandbox
+cd examples/windows
 python main_use_pool.py
 ```
 

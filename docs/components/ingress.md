@@ -14,6 +14,8 @@ description: HTTP/WebSocket reverse proxy that routes traffic to OpenSandbox ins
 
 ## Quick Start
 ```bash
+cd components/ingress
+
 go run main.go \
   --namespace <any-value-kept-for-compatibility> \
   --provider-type <batchsandbox|agent-sandbox> \

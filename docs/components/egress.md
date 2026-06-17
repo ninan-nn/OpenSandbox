@@ -138,6 +138,8 @@ Egress can export **OTLP metrics**; application logs use the **native zap** logg
 ### Build Docker Image
 
 ```bash
+cd components/egress
+
 # Build locally
 docker build -t opensandbox/egress:local .
 
