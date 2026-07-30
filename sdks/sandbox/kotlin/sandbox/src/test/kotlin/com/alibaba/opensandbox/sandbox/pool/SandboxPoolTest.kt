@@ -129,6 +129,191 @@ class SandboxPoolTest {
     }
 
     @Test
+    fun `rolling warmup fills a released slot without waiting for slow tail`() {
+        val store = InMemoryPoolStateStore()
+        val created = AtomicInteger(0)
+        val active = AtomicInteger(0)
+        val maxActive = AtomicInteger(0)
+        val slowWarmupStarted = CountDownLatch(1)
+        val releaseSlowWarmup = CountDownLatch(1)
+        val thirdWarmupStarted = CountDownLatch(1)
+
+        val pool =
+            SandboxPool.builder()
+                .poolName("rolling-pool")
+                .ownerId("rolling-owner")
+                .maxIdle(4)
+                .warmupConcurrency(2)
+                .stateStore(store)
+                .connectionConfig(ConnectionConfig.builder().build())
+                .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
+                .sandboxCreator(
+                    PooledSandboxCreator {
+                        val index = created.incrementAndGet()
+                        mockk<Sandbox>(relaxed = true).also { sandbox ->
+                            every { sandbox.id } returns "rolling-$index"
+                        }
+                    },
+                ).warmupSkipHealthCheck()
+                .warmupSandboxPreparer(
+                    SandboxPreparer { sandbox ->
+                        val currentActive = active.incrementAndGet()
+                        maxActive.updateAndGet { current -> maxOf(current, currentActive) }
+                        try {
+                            when (sandbox.id) {
+                                "rolling-1" -> {
+                                    slowWarmupStarted.countDown()
+                                    releaseSlowWarmup.await()
+                                }
+                                "rolling-3" -> thirdWarmupStarted.countDown()
+                            }
+                        } finally {
+                            active.decrementAndGet()
+                        }
+                    },
+                ).reconcileInterval(Duration.ofSeconds(30))
+                .drainTimeout(Duration.ofSeconds(2))
+                .build()
+
+        pool.start()
+        try {
+            assertTrue(slowWarmupStarted.await(5, TimeUnit.SECONDS))
+            assertTrue(
+                thirdWarmupStarted.await(5, TimeUnit.SECONDS),
+                "a fast completion should refill its slot before the slow first warmup finishes",
+            )
+            assertEquals(1L, releaseSlowWarmup.count, "slow warmup must still be blocked")
+            assertTrue(maxActive.get() <= 2, "rolling warmup must respect warmupConcurrency")
+
+            releaseSlowWarmup.countDown()
+            awaitCondition { store.snapshotCounters("rolling-pool").idleCount == 4 }
+            assertEquals(4, created.get())
+        } finally {
+            releaseSlowWarmup.countDown()
+            pool.shutdown(graceful = false)
+        }
+    }
+
+    @Test
+    fun `primary heartbeat continues while warmup is blocked`() {
+        val store = HeartbeatRecordingStore()
+        val sandbox = mockk<Sandbox>(relaxed = true)
+        val warmupStarted = CountDownLatch(1)
+        val releaseWarmup = CountDownLatch(1)
+        every { sandbox.id } returns "heartbeat-warmup"
+
+        val pool =
+            SandboxPool.builder()
+                .poolName("heartbeat-pool")
+                .ownerId("heartbeat-owner")
+                .maxIdle(1)
+                .warmupConcurrency(1)
+                .primaryLockTtl(Duration.ofMillis(300))
+                .reconcileInterval(Duration.ofSeconds(30))
+                .stateStore(store)
+                .connectionConfig(ConnectionConfig.builder().build())
+                .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
+                .sandboxCreator(PooledSandboxCreator { sandbox })
+                .warmupSkipHealthCheck()
+                .warmupSandboxPreparer(
+                    SandboxPreparer {
+                        warmupStarted.countDown()
+                        releaseWarmup.await()
+                    },
+                ).drainTimeout(Duration.ofSeconds(2))
+                .build()
+
+        pool.start()
+        try {
+            assertTrue(warmupStarted.await(5, TimeUnit.SECONDS))
+            awaitCondition { store.renewCalls.get() >= 3 }
+            assertEquals(1L, releaseWarmup.count, "warmup must remain blocked while heartbeat renews")
+        } finally {
+            releaseWarmup.countDown()
+            pool.shutdown(graceful = true)
+        }
+    }
+
+    @Test
+    fun `warmup result is killed instead of entering idle after primary lock loss`() {
+        val store = RenewFailsAfterAdmissionStore()
+        val manager = mockk<SandboxManager>(relaxed = true)
+        val sandbox = mockk<Sandbox>(relaxed = true)
+        val killed = CountDownLatch(1)
+        every { sandbox.id } returns "lost-lock-warmup"
+        every { manager.killSandbox("lost-lock-warmup") } answers {
+            killed.countDown()
+        }
+        val pool =
+            SandboxPool(
+                config =
+                    PoolConfig.builder()
+                        .poolName("lost-lock-pool")
+                        .ownerId("lost-lock-owner")
+                        .maxIdle(1)
+                        .warmupConcurrency(1)
+                        .stateStore(store)
+                        .connectionConfig(ConnectionConfig.builder().build())
+                        .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
+                        .sandboxCreator(PooledSandboxCreator { sandbox })
+                        .warmupSkipHealthCheck()
+                        .reconcileInterval(Duration.ofSeconds(30))
+                        .build(),
+                sandboxManagerFactory = { manager },
+            )
+
+        pool.start()
+        try {
+            assertTrue(killed.await(5, TimeUnit.SECONDS))
+            assertEquals(0, store.snapshotCounters("lost-lock-pool").idleCount)
+            verify(exactly = 1) { manager.killSandbox("lost-lock-warmup") }
+        } finally {
+            pool.shutdown(graceful = false)
+        }
+    }
+
+    @Test
+    fun `warmup put failure records backoff and cleans remote sandbox`() {
+        val store = PutIdleFailureStore()
+        val manager = mockk<SandboxManager>(relaxed = true)
+        val sandbox = mockk<Sandbox>(relaxed = true)
+        val killed = CountDownLatch(1)
+        every { sandbox.id } returns "put-failed-warmup"
+        every { manager.killSandbox("put-failed-warmup") } answers {
+            killed.countDown()
+        }
+        val pool =
+            SandboxPool(
+                config =
+                    PoolConfig.builder()
+                        .poolName("put-failed-pool")
+                        .ownerId("put-failed-owner")
+                        .maxIdle(1)
+                        .warmupConcurrency(1)
+                        .degradedThreshold(1)
+                        .stateStore(store)
+                        .connectionConfig(ConnectionConfig.builder().build())
+                        .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
+                        .sandboxCreator(PooledSandboxCreator { sandbox })
+                        .warmupSkipHealthCheck()
+                        .reconcileInterval(Duration.ofSeconds(30))
+                        .build(),
+                sandboxManagerFactory = { manager },
+            )
+
+        pool.start()
+        try {
+            assertTrue(killed.await(5, TimeUnit.SECONDS))
+            awaitCondition { pool.snapshot().backoffActive }
+            assertEquals(PoolState.DEGRADED, pool.snapshot().state)
+            assertEquals(0, store.snapshotCounters("put-failed-pool").idleCount)
+            verify(exactly = 1) { manager.killSandbox("put-failed-warmup") }
+        } finally {
+            pool.shutdown(graceful = false)
+        }
+    }
+
+    @Test
     fun `shutdown graceful waits for in-flight warmup without interrupting it`() {
         val store = InMemoryPoolStateStore()
         val sandbox = mockk<Sandbox>(relaxed = true)
@@ -1239,6 +1424,51 @@ class SandboxPoolTest {
         val field = target.javaClass.getDeclaredField(fieldName)
         field.isAccessible = true
         field.set(target, value)
+    }
+
+    private fun awaitCondition(
+        timeout: Duration = Duration.ofSeconds(5),
+        condition: () -> Boolean,
+    ) {
+        val deadline = System.nanoTime() + timeout.toNanos()
+        while (!condition()) {
+            if (System.nanoTime() >= deadline) {
+                throw AssertionError("Condition was not satisfied within $timeout")
+            }
+            Thread.sleep(10)
+        }
+    }
+
+    private class HeartbeatRecordingStore : PoolStateStore by InMemoryPoolStateStore() {
+        val renewCalls = AtomicInteger(0)
+
+        override fun renewPrimaryLock(
+            poolName: String,
+            ownerId: String,
+            ttl: Duration,
+        ): Boolean {
+            renewCalls.incrementAndGet()
+            return true
+        }
+    }
+
+    private class RenewFailsAfterAdmissionStore : PoolStateStore by InMemoryPoolStateStore() {
+        private val renewCalls = AtomicInteger(0)
+
+        override fun renewPrimaryLock(
+            poolName: String,
+            ownerId: String,
+            ttl: Duration,
+        ): Boolean = renewCalls.incrementAndGet() == 1
+    }
+
+    private class PutIdleFailureStore : PoolStateStore by InMemoryPoolStateStore() {
+        override fun putIdle(
+            poolName: String,
+            sandboxId: String,
+        ) {
+            throw RuntimeException("put failed")
+        }
     }
 
     /**
