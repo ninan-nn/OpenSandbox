@@ -96,10 +96,16 @@ class SandboxPoolTest {
     @Test
     fun `snapshot reports in flight operations`() {
         val pool = buildPool()
-        val inFlight = AtomicInteger(3)
-        setPrivateField(pool, "inFlightOperations", inFlight)
-
-        val snap = pool.snapshot()
+        pool.start()
+        val inFlight = currentRunInFlight(pool)
+        inFlight.set(3)
+        val snap =
+            try {
+                pool.snapshot()
+            } finally {
+                inFlight.set(0)
+                pool.shutdown(graceful = false)
+            }
 
         assertEquals(3, snap.inFlightOperations)
     }
@@ -485,16 +491,18 @@ class SandboxPoolTest {
         pool.start()
         try {
             assertTrue(oldWarmupStarted.await(5, TimeUnit.SECONDS))
+            val retiredRunInFlight = currentRunInFlight(pool)
             shutdownWithoutWaitingForUncooperativeWorker(pool)
 
             pool.start()
             awaitCondition {
                 pool.snapshotIdleEntries().map { it.sandboxId } == listOf("new-run-sandbox")
             }
+            awaitCondition { pool.snapshot().inFlightOperations == 0 }
 
             releaseOldWarmup.countDown()
             assertTrue(oldSandboxKilled.await(5, TimeUnit.SECONDS))
-            awaitCondition { pool.snapshot().inFlightOperations == 0 }
+            awaitCondition { retiredRunInFlight.get() == 0 }
 
             assertEquals(listOf("new-run-sandbox"), pool.snapshotIdleEntries().map { it.sandboxId })
             verify(exactly = 1) { manager.killSandbox("old-run-sandbox") }
@@ -548,11 +556,13 @@ class SandboxPoolTest {
         pool.start()
         try {
             assertTrue(warmupStarted.await(5, TimeUnit.SECONDS))
+            val retiredRunInFlight = currentRunInFlight(pool)
             shutdownWithoutWaitingForUncooperativeWorker(pool)
+            awaitCondition { pool.snapshot().inFlightOperations == 0 }
 
             releaseWarmup.countDown()
             assertTrue(sandboxKilled.await(5, TimeUnit.SECONDS))
-            awaitCondition { pool.snapshot().inFlightOperations == 0 }
+            awaitCondition { retiredRunInFlight.get() == 0 }
 
             assertEquals(emptyList<String>(), pool.snapshotIdleEntries().map { it.sandboxId })
             verify(exactly = 1) { cleanupManager.killSandbox("late-warmup-sandbox") }
@@ -604,15 +614,17 @@ class SandboxPoolTest {
         pool.start()
         try {
             assertTrue(oldWarmupStarted.await(5, TimeUnit.SECONDS))
+            val retiredRunInFlight = currentRunInFlight(pool)
             shutdownWithoutWaitingForUncooperativeWorker(pool)
 
             pool.start()
             awaitCondition {
                 pool.snapshotIdleEntries().map { it.sandboxId } == listOf("new-run-sandbox")
             }
+            awaitCondition { pool.snapshot().inFlightOperations == 0 }
 
             releaseOldWarmup.countDown()
-            awaitCondition { pool.snapshot().inFlightOperations == 0 }
+            awaitCondition { retiredRunInFlight.get() == 0 }
 
             assertEquals(0, pool.snapshot().failureCount)
             assertEquals(false, pool.snapshot().backoffActive)
@@ -1611,6 +1623,11 @@ class SandboxPoolTest {
         val field = target.javaClass.getDeclaredField(fieldName)
         field.isAccessible = true
         field.set(target, value)
+    }
+
+    private fun currentRunInFlight(pool: SandboxPool): AtomicInteger {
+        val run = getPrivateField<Any>(pool, "currentRun")
+        return getPrivateField(run, "inFlightOperations")
     }
 
     private fun awaitCondition(

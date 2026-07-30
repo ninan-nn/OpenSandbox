@@ -110,9 +110,6 @@ class SandboxPool internal constructor(
     private var warmupExecutor: ExecutorService? = null
     private var reconcileTask: ScheduledFuture<*>? = null
     private var primaryHeartbeatTask: ScheduledFuture<*>? = null
-    private val inFlightOperations = AtomicInteger(0)
-    private val inFlightLock = ReentrantLock()
-    private val inFlightZero: Condition = inFlightLock.newCondition()
     private val runSequence = AtomicLong(0)
 
     @Volatile
@@ -232,9 +229,10 @@ class SandboxPool internal constructor(
             logger.info("Pool not running, acquire rejected: pool_name={} state={}", config.poolName, state)
             throw PoolNotRunningException("Cannot acquire when pool state is $state")
         }
-        beginOperation()
+        val run = currentRun ?: throw PoolNotRunningException("Cannot acquire without an active pool run")
+        beginOperation(run)
         try {
-            if (lifecycleState.get() != LifecycleState.RUNNING) {
+            if (!isCurrentRun(run) || lifecycleState.get() != LifecycleState.RUNNING) {
                 val state = lifecycleState.get()
                 throwIfPoolNamespaceDestroyed()
                 logger.info("Pool not running after acquire started, rejected: pool_name={} state={}", config.poolName, state)
@@ -263,7 +261,7 @@ class SandboxPool internal constructor(
                         // Under non-fallthrough policies (FAIL_FAST / RETRY_NEXT_IDLE) we surface
                         // the outage as-is so callers can react.
                         if (!policyFallsThroughToDirectCreate(policy)) {
-                            scheduleKillDiscardedAlive(poolName, pendingKill, source = "acquire")
+                            scheduleKillDiscardedAlive(poolName, pendingKill, source = "acquire", run = run)
                             throw e
                         }
                         logger.warn(
@@ -300,7 +298,7 @@ class SandboxPool internal constructor(
                                 config.acquireHealthCheck?.let { healthCheck(it) } ?: this
                             }.connect()
                 } catch (e: PoolDestroyedException) {
-                    scheduleKillDiscardedAlive(poolName, pendingKill, source = "acquire")
+                    scheduleKillDiscardedAlive(poolName, pendingKill, source = "acquire", run = run)
                     throw e
                 } catch (e: Exception) {
                     // Connect / readiness / health-check failure — the idle candidate itself is
@@ -323,13 +321,13 @@ class SandboxPool internal constructor(
                     // RETRY_NEXT_IDLE. scheduleKillDiscardedAlive uses the same executor path
                     // as discarded-alive cleanup and falls back to inline execution when the
                     // pool is mid-shutdown so cleanup is never silently dropped.
-                    scheduleKillDiscardedAlive(poolName, listOf(sandboxId), source = "acquire-stale")
+                    scheduleKillDiscardedAlive(poolName, listOf(sandboxId), source = "acquire-stale", run = run)
                     // Re-check lifecycle between iterations so an in-flight shutdown / namespace
                     // destroy short-circuits the retry loop instead of paying another readyTimeout.
                     if (lifecycleState.get() != LifecycleState.RUNNING) {
                         val state = lifecycleState.get()
                         throwIfPoolNamespaceDestroyed()
-                        scheduleKillDiscardedAlive(poolName, pendingKill, source = "acquire")
+                        scheduleKillDiscardedAlive(poolName, pendingKill, source = "acquire", run = run)
                         throw PoolNotRunningException("Cannot acquire when pool state is $state")
                     }
                     ensurePoolNamespaceActive()
@@ -343,7 +341,7 @@ class SandboxPool internal constructor(
                     sandboxTimeout?.let { sandbox.renew(it) }
                     ensurePoolNamespaceActiveOrDispose(sandbox)
                 } catch (e: PoolDestroyedException) {
-                    scheduleKillDiscardedAlive(poolName, pendingKill, source = "acquire")
+                    scheduleKillDiscardedAlive(poolName, pendingKill, source = "acquire", run = run)
                     throw e
                 } catch (e: Exception) {
                     // Renew failed against a healthy sandbox. Retrying another idle will not fix a
@@ -376,13 +374,13 @@ class SandboxPool internal constructor(
                     } catch (_: Exception) {
                         // best-effort local resource release
                     }
-                    scheduleKillDiscardedAlive(poolName, pendingKill, source = "acquire")
+                    scheduleKillDiscardedAlive(poolName, pendingKill, source = "acquire", run = run)
                     throw e
                 }
                 // Candidate is connected and renewed. Now safe to clean up the discarded-alive
                 // sandboxes; offload to the warmup executor so the caller does not wait for
                 // N kill RPCs.
-                scheduleKillDiscardedAlive(poolName, pendingKill, source = "acquire")
+                scheduleKillDiscardedAlive(poolName, pendingKill, source = "acquire", run = run)
                 logger.debug(
                     "Acquire from idle: pool_name={} sandbox_id={} policy={} attempt={}/{}",
                     poolName,
@@ -396,7 +394,7 @@ class SandboxPool internal constructor(
             // Reaching here means we did not return a sandbox from idle. Fire the deferred cleanup
             // so the discarded-alive sandboxes do not linger; both the fail-fast and direct-create
             // fallthroughs below benefit from asynchronous cleanup instead of a synchronous kill.
-            scheduleKillDiscardedAlive(poolName, pendingKill, source = "acquire")
+            scheduleKillDiscardedAlive(poolName, pendingKill, source = "acquire", run = run)
 
             val reason =
                 when {
@@ -422,7 +420,7 @@ class SandboxPool internal constructor(
             logger.debug("Acquire direct create: pool_name={} reason={} policy={}", poolName, reason, policy)
             return directCreate(sandboxTimeout, policy)
         } finally {
-            endOperation()
+            endOperation(run)
         }
     }
 
@@ -540,7 +538,7 @@ class SandboxPool internal constructor(
             failureCount = reconcileState.failureCount,
             backoffActive = reconcileState.isBackoffActive(),
             lastError = reconcileState.lastError,
-            inFlightOperations = inFlightOperations.get(),
+            inFlightOperations = currentRun?.inFlightOperations?.get() ?: 0,
         )
     }
 
@@ -573,12 +571,12 @@ class SandboxPool internal constructor(
         var drained = false
         try {
             beginGracefulReconcileStop()
-            drained = awaitInFlightDrain(config.drainTimeout)
+            drained = awaitInFlightDrain(run, config.drainTimeout)
             if (!drained) {
                 logger.warn(
                     "Pool graceful shutdown timed out waiting in-flight operations: pool_name={} in_flight={} timeout_ms={}",
                     config.poolName,
-                    inFlightOperations.get(),
+                    run?.inFlightOperations?.get() ?: 0,
                     config.drainTimeout.toMillis(),
                 )
             }
@@ -610,9 +608,10 @@ class SandboxPool internal constructor(
         sandboxIds: List<String>,
         source: String,
         executor: ExecutorService? = warmupExecutor,
+        run: RunContext? = currentRun,
     ) {
         if (sandboxIds.isEmpty()) return
-        val cleanupTask = TrackedCleanupTask(poolName, sandboxIds.toList(), source)
+        val cleanupTask = TrackedCleanupTask(poolName, sandboxIds.toList(), source, run)
         if (executor == null) {
             cleanupTask.run()
             return
@@ -638,11 +637,12 @@ class SandboxPool internal constructor(
         private val poolName: String,
         private val sandboxIds: List<String>,
         private val source: String,
+        private val run: RunContext?,
     ) : Runnable {
         private val completed = AtomicBoolean(false)
 
         init {
-            beginOperation()
+            run?.let { beginOperation(it) }
         }
 
         override fun run() {
@@ -659,7 +659,7 @@ class SandboxPool internal constructor(
 
         private fun complete() {
             if (completed.compareAndSet(false, true)) {
-                endOperation()
+                run?.let { endOperation(it) }
             }
         }
     }
@@ -748,7 +748,7 @@ class SandboxPool internal constructor(
             stopAfterNamespaceDestroyed()
             return
         }
-        beginOperation()
+        beginOperation(run)
         try {
             if (!isCurrentRun(run) || lifecycleState.get() != LifecycleState.RUNNING) return
             if (!isPoolNamespaceActive()) return
@@ -769,7 +769,7 @@ class SandboxPool internal constructor(
                 throw e
             }
         } finally {
-            endOperation()
+            endOperation(run)
         }
     }
 
@@ -857,7 +857,7 @@ class SandboxPool internal constructor(
 
         init {
             run.warmingCount.incrementAndGet()
-            beginOperation()
+            beginOperation(run)
         }
 
         override fun run() {
@@ -894,7 +894,7 @@ class SandboxPool internal constructor(
                 handleWarmupOutcome(run, outcome)
             } finally {
                 run.warmingCount.decrementAndGet()
-                endOperation()
+                endOperation(run)
                 requestReconcile(run)
             }
         }
@@ -988,6 +988,7 @@ class SandboxPool internal constructor(
                 listOf(sandboxId),
                 source = source,
                 executor = run.warmupExecutor,
+                run = run,
             )
         }
     }
@@ -1300,52 +1301,60 @@ class SandboxPool internal constructor(
         }
     }
 
-    private fun beginOperation() {
-        inFlightOperations.incrementAndGet()
+    private fun beginOperation(run: RunContext) {
+        run.inFlightOperations.incrementAndGet()
     }
 
-    private fun endOperation() {
-        val remaining = inFlightOperations.decrementAndGet()
+    private fun endOperation(run: RunContext) {
+        val remaining = run.inFlightOperations.decrementAndGet()
         if (remaining < 0) {
-            inFlightOperations.set(0)
-            logger.warn("Pool in-flight counter underflow corrected: pool_name={}", config.poolName)
-            inFlightLock.lock()
+            run.inFlightOperations.set(0)
+            logger.warn(
+                "Pool in-flight counter underflow corrected: pool_name={} run={}",
+                config.poolName,
+                run.generation,
+            )
+            run.inFlightLock.lock()
             try {
-                inFlightZero.signalAll()
+                run.inFlightZero.signalAll()
             } finally {
-                inFlightLock.unlock()
+                run.inFlightLock.unlock()
             }
             return
         }
         if (remaining == 0) {
-            inFlightLock.lock()
+            run.inFlightLock.lock()
             try {
-                inFlightZero.signalAll()
+                run.inFlightZero.signalAll()
             } finally {
-                inFlightLock.unlock()
+                run.inFlightLock.unlock()
             }
         }
     }
 
     @Throws(InterruptedException::class)
-    private fun awaitInFlightDrain(timeout: Duration): Boolean {
+    private fun awaitInFlightDrain(
+        run: RunContext?,
+        timeout: Duration,
+    ): Boolean {
+        if (run == null) return true
         val timeoutNanos = timeout.toNanos()
         if (timeoutNanos <= 0) {
-            return inFlightOperations.get() == 0
+            return run.inFlightOperations.get() == 0
         }
         val deadline = System.nanoTime() + timeoutNanos
-        inFlightLock.lock()
+        run.inFlightLock.lock()
         try {
-            while (inFlightOperations.get() > 0) {
+            while (run.inFlightOperations.get() > 0) {
                 val remaining = deadline - System.nanoTime()
                 if (remaining <= 0) {
                     return false
                 }
-                inFlightZero.awaitNanos(remaining)
+                run.inFlightZero.awaitNanos(remaining)
             }
             return true
         } finally {
-            inFlightLock.unlock()
+            run.inFlightLock.unlock()
         }
     }
 
@@ -1529,6 +1538,9 @@ class SandboxPool internal constructor(
         val warmupSubmissionsOpen = AtomicBoolean(true)
         val reconcileQueued = AtomicBoolean(false)
         val primaryOwned = AtomicBoolean(false)
+        val inFlightOperations = AtomicInteger(0)
+        val inFlightLock = ReentrantLock()
+        val inFlightZero: Condition = inFlightLock.newCondition()
     }
 
     @Suppress("ktlint:standard:property-naming")
