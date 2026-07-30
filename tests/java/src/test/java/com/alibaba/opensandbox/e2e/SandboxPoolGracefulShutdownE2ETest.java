@@ -291,6 +291,104 @@ public class SandboxPoolGracefulShutdownE2ETest extends BaseE2ETest {
         }
     }
 
+    @Test
+    @DisplayName("restart fences and deletes a late warmup from the retired run")
+    @Timeout(value = 6, unit = TimeUnit.MINUTES)
+    void testRestartFencesLateWarmupFromRetiredRun() throws Exception {
+        tag = uniqueTag("restart-late-warmup");
+        InMemoryPoolStateStore stateStore = new InMemoryPoolStateStore();
+        CountDownLatch oldWarmupEntered = new CountDownLatch(1);
+        CountDownLatch releaseOldWarmup = new CountDownLatch(1);
+        CountDownLatch newWarmupEntered = new CountDownLatch(1);
+        AtomicInteger warmupSequence = new AtomicInteger();
+        AtomicBoolean oldWarmupInterrupted = new AtomicBoolean(false);
+        AtomicReference<String> oldSandboxId = new AtomicReference<>();
+        AtomicReference<String> newSandboxId = new AtomicReference<>();
+        SandboxPool pool =
+                createPool(
+                        stateStore,
+                        Duration.ofMillis(300),
+                        sandbox -> {
+                            if (warmupSequence.incrementAndGet() == 1) {
+                                oldSandboxId.set(sandbox.getId());
+                                oldWarmupEntered.countDown();
+                                awaitIgnoringInterrupt(releaseOldWarmup, oldWarmupInterrupted);
+                            } else {
+                                newSandboxId.set(sandbox.getId());
+                                newWarmupEntered.countDown();
+                            }
+                        });
+
+        try {
+            pool.start();
+            assertTrue(
+                    oldWarmupEntered.await(2, TimeUnit.MINUTES),
+                    "the first lifecycle should enter its deliberately uncooperative warmup");
+            assertNotNull(oldSandboxId.get());
+            eventually(
+                    "old lifecycle warmup is visible remotely",
+                    Duration.ofSeconds(30),
+                    Duration.ofMillis(500),
+                    () -> taggedSandboxExists(oldSandboxId.get()));
+
+            pool.shutdown(true);
+
+            assertTrue(
+                    oldWarmupInterrupted.get(),
+                    "forced shutdown should interrupt the old preparer even though it keeps waiting");
+            assertEquals(PoolLifecycleState.STOPPED, pool.snapshot().getLifecycleState());
+            assertEquals(
+                    1L,
+                    releaseOldWarmup.getCount(),
+                    "old warmup must still be blocked after its lifecycle has stopped");
+            assertEquals(0, pool.snapshot().getInFlightOperations());
+
+            pool.start();
+            assertTrue(
+                    newWarmupEntered.await(2, TimeUnit.MINUTES),
+                    "the restarted lifecycle should admit a new warmup independently");
+            eventually(
+                    "restarted lifecycle publishes only its new warmup",
+                    Duration.ofMinutes(2),
+                    Duration.ofMillis(500),
+                    () ->
+                            newSandboxId.get() != null
+                                    && pool.snapshot().getIdleCount() == 1
+                                    && pool.snapshot().getInFlightOperations() == 0
+                                    && pool.snapshotIdleEntries().stream()
+                                            .allMatch(
+                                                    entry ->
+                                                            newSandboxId
+                                                                    .get()
+                                                                    .equals(entry.getSandboxId())));
+            eventually(
+                    "old and restarted sandboxes overlap before the old warmup is released",
+                    Duration.ofSeconds(30),
+                    Duration.ofMillis(500),
+                    () -> countTaggedSandboxes() == 2);
+
+            releaseOldWarmup.countDown();
+
+            eventually(
+                    "retired lifecycle sandbox is deleted after its late completion",
+                    Duration.ofSeconds(60),
+                    Duration.ofMillis(500),
+                    () ->
+                            !taggedSandboxExists(oldSandboxId.get())
+                                    && taggedSandboxExists(newSandboxId.get())
+                                    && countTaggedSandboxes() == 1);
+            assertEquals(1, pool.snapshot().getIdleCount());
+            assertEquals(0, pool.snapshot().getInFlightOperations());
+            assertTrue(
+                    pool.snapshotIdleEntries().stream()
+                            .allMatch(entry -> newSandboxId.get().equals(entry.getSandboxId())),
+                    "late old-run completion must never enter the restarted idle pool");
+        } finally {
+            releaseOldWarmup.countDown();
+            shutdownAndRelease(pool);
+        }
+    }
+
     private SandboxPool createPool(
             InMemoryPoolStateStore stateStore, Duration drainTimeout, SandboxPreparer preparer) {
         return createPool(stateStore, drainTimeout, preparer, 1, 1);
@@ -372,6 +470,16 @@ public class SandboxPoolGracefulShutdownE2ETest extends BaseE2ETest {
         return infos.getSandboxInfos().size();
     }
 
+    private boolean taggedSandboxExists(String sandboxId) {
+        if (sandboxId == null) {
+            return false;
+        }
+        PagedSandboxInfos infos =
+                sandboxManager.listSandboxInfos(
+                        SandboxFilter.builder().metadata(Map.of("tag", tag)).pageSize(20).build());
+        return infos.getSandboxInfos().stream().anyMatch(info -> sandboxId.equals(info.getId()));
+    }
+
     private void cleanupTaggedSandboxes() {
         if (sandboxManager == null || tag == null || tag.isBlank()) {
             return;
@@ -406,6 +514,17 @@ public class SandboxPoolGracefulShutdownE2ETest extends BaseE2ETest {
         try {
             pool.releaseAllIdle();
         } catch (Exception ignored) {
+        }
+    }
+
+    private static void awaitIgnoringInterrupt(CountDownLatch latch, AtomicBoolean interrupted) {
+        while (true) {
+            try {
+                latch.await();
+                return;
+            } catch (InterruptedException exception) {
+                interrupted.set(true);
+            }
         }
     }
 
