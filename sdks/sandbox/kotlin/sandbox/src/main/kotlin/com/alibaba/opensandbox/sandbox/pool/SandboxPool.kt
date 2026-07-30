@@ -47,6 +47,7 @@ import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.locks.Condition
 import java.util.concurrent.locks.ReentrantLock
@@ -109,13 +110,13 @@ class SandboxPool internal constructor(
     private var warmupExecutor: ExecutorService? = null
     private var reconcileTask: ScheduledFuture<*>? = null
     private var primaryHeartbeatTask: ScheduledFuture<*>? = null
-    private val warmingCount = AtomicInteger(0)
-    private val warmupSubmissionsOpen = AtomicBoolean(false)
-    private val reconcileQueued = AtomicBoolean(false)
-    private val primaryOwned = AtomicBoolean(false)
     private val inFlightOperations = AtomicInteger(0)
     private val inFlightLock = ReentrantLock()
     private val inFlightZero: Condition = inFlightLock.newCondition()
+    private val runSequence = AtomicLong(0)
+
+    @Volatile
+    private var currentRun: RunContext? = null
 
     /**
      * Starts the pool: begins the background reconcile loop and, if [PoolConfig.maxIdle] > 0,
@@ -132,15 +133,18 @@ class SandboxPool internal constructor(
             sandboxManager = createSandboxManager()
             stateStore.setIdleEntryTtl(config.poolName, config.idleTimeout)
             stateStore.setMaxIdle(config.poolName, config.maxIdle)
-            warmupExecutor =
+            val warmupExec =
                 Executors.newFixedThreadPool(config.warmupConcurrency.coerceAtLeast(1)) { r ->
                     Thread(r, "sandbox-pool-warmup-${config.poolName}").apply { isDaemon = true }
                 }
+            warmupExecutor = warmupExec
             val exec =
                 Executors.newSingleThreadScheduledExecutor { r ->
                     Thread(r, "sandbox-pool-reconcile-${config.poolName}").apply { isDaemon = true }
                 }
             scheduler = exec
+            val run = RunContext(runSequence.incrementAndGet(), exec, warmupExec)
+            currentRun = run
             val reconcileIntervalMs = config.reconcileInterval.toMillis()
             val primaryHeartbeatIntervalMs =
                 minOf(
@@ -150,12 +154,11 @@ class SandboxPool internal constructor(
             // The first reconcile may run immediately. Publish RUNNING only after all of its
             // dependencies are initialized, but before scheduling it so that tick is not skipped.
             lifecycleState.set(LifecycleState.RUNNING)
-            warmupSubmissionsOpen.set(true)
             primaryHeartbeatTask =
                 exec.scheduleAtFixedRate(
                     {
                         try {
-                            runPrimaryHeartbeat()
+                            runPrimaryHeartbeat(run)
                         } catch (t: Throwable) {
                             // Keep periodic heartbeats alive after transient store failures.
                             logger.error("Pool primary heartbeat failed: pool_name={}", config.poolName, t)
@@ -169,7 +172,7 @@ class SandboxPool internal constructor(
                 exec.scheduleAtFixedRate(
                     {
                         try {
-                            runReconcileTick()
+                            runReconcileTick(run)
                         } catch (t: Throwable) {
                             // Keep periodic scheduling alive even if one tick fails unexpectedly.
                             logger.error("Pool reconcile tick failed unexpectedly: pool_name={}", config.poolName, t)
@@ -557,7 +560,8 @@ class SandboxPool internal constructor(
     @Synchronized
     fun shutdown(graceful: Boolean = true) {
         if (lifecycleState.get() == LifecycleState.STOPPED) return
-        warmupSubmissionsOpen.set(false)
+        val run = currentRun
+        run?.warmupSubmissionsOpen?.set(false)
         if (!graceful) {
             lifecycleState.set(LifecycleState.STOPPED)
             stopReconcile()
@@ -605,10 +609,10 @@ class SandboxPool internal constructor(
         poolName: String,
         sandboxIds: List<String>,
         source: String,
+        executor: ExecutorService? = warmupExecutor,
     ) {
         if (sandboxIds.isEmpty()) return
         val cleanupTask = TrackedCleanupTask(poolName, sandboxIds.toList(), source)
-        val executor = warmupExecutor
         if (executor == null) {
             cleanupTask.run()
             return
@@ -684,22 +688,50 @@ class SandboxPool internal constructor(
         source: String,
     ) {
         if (sandboxIds.isEmpty()) return
-        val manager = sandboxManager ?: return
-        for (sandboxId in sandboxIds) {
-            try {
-                manager.killSandbox(sandboxId)
-                logger.debug(
-                    "Killed near-expiry idle sandbox: pool_name={} sandbox_id={} source={}",
-                    poolName,
-                    sandboxId,
-                    source,
-                )
+        var temporaryManager: SandboxManager? = null
+        val manager =
+            sandboxManager ?: try {
+                createSandboxManager().also { temporaryManager = it }
             } catch (e: Exception) {
                 logger.warn(
-                    "Failed to kill near-expiry idle sandbox (best-effort, will expire server-side): " +
-                        "pool_name={} sandbox_id={} source={} error={}",
+                    "Failed to create manager for discarded sandbox cleanup: " +
+                        "pool_name={} count={} source={} error={}",
                     poolName,
-                    sandboxId,
+                    sandboxIds.size,
+                    source,
+                    e.message,
+                )
+                return
+            }
+        try {
+            for (sandboxId in sandboxIds) {
+                try {
+                    manager.killSandbox(sandboxId)
+                    logger.debug(
+                        "Killed discarded sandbox: pool_name={} sandbox_id={} source={}",
+                        poolName,
+                        sandboxId,
+                        source,
+                    )
+                } catch (e: Exception) {
+                    logger.warn(
+                        "Failed to kill discarded sandbox (best-effort, will expire server-side): " +
+                            "pool_name={} sandbox_id={} source={} error={}",
+                        poolName,
+                        sandboxId,
+                        source,
+                        e.message,
+                    )
+                }
+            }
+        } finally {
+            try {
+                temporaryManager?.close()
+            } catch (e: Exception) {
+                logger.warn(
+                    "Failed to close temporary manager after discarded sandbox cleanup: " +
+                        "pool_name={} source={} error={}",
+                    poolName,
                     source,
                     e.message,
                 )
@@ -709,32 +741,31 @@ class SandboxPool internal constructor(
 
     private fun createSandboxManager(): SandboxManager = sandboxManagerFactory(connectionConfig.copyWithoutConnectionPool())
 
-    private fun runReconcileTick() {
-        if (lifecycleState.get() != LifecycleState.RUNNING) return
+    private fun runReconcileTick(run: RunContext) {
+        if (!isCurrentRun(run) || lifecycleState.get() != LifecycleState.RUNNING) return
         if (!isPoolNamespaceActive()) {
             logger.info("Pool namespace is destroyed; stopping local pool: pool_name={}", config.poolName)
             stopAfterNamespaceDestroyed()
             return
         }
-        val executor = warmupExecutor ?: return
         beginOperation()
         try {
-            if (lifecycleState.get() != LifecycleState.RUNNING) return
+            if (!isCurrentRun(run) || lifecycleState.get() != LifecycleState.RUNNING) return
             if (!isPoolNamespaceActive()) return
             val reconcileConfig = config.withMaxIdle(resolveMaxIdle())
             try {
-                primaryOwned.set(
+                run.primaryOwned.set(
                     PoolReconciler.runReconcileTick(
                         config = reconcileConfig,
                         stateStore = stateStore,
                         onDiscardSandbox = { sandboxId -> killSandboxBestEffort(sandboxId) },
                         reconcileState = reconcileState,
-                        warmingCount = warmingCount.get(),
-                        submitWarmups = { count -> submitWarmups(count, executor) },
+                        warmingCount = run.warmingCount.get(),
+                        submitWarmups = { count -> submitWarmups(run, count) },
                     ),
                 )
             } catch (e: Exception) {
-                primaryOwned.set(false)
+                run.primaryOwned.set(false)
                 throw e
             }
         } finally {
@@ -742,10 +773,11 @@ class SandboxPool internal constructor(
         }
     }
 
-    private fun runPrimaryHeartbeat() {
+    private fun runPrimaryHeartbeat(run: RunContext) {
+        if (!isCurrentRun(run)) return
         val state = lifecycleState.get()
         if (state != LifecycleState.RUNNING && state != LifecycleState.DRAINING) return
-        if (!primaryOwned.get()) return
+        if (!run.primaryOwned.get()) return
         val renewed =
             stateStore.renewPrimaryLock(
                 config.poolName,
@@ -753,7 +785,7 @@ class SandboxPool internal constructor(
                 config.primaryLockTtl,
             )
         if (!renewed) {
-            primaryOwned.set(false)
+            run.primaryOwned.set(false)
             logger.trace(
                 "Pool primary heartbeat skipped (not current owner): pool_name={} owner_id={}",
                 config.poolName,
@@ -762,21 +794,26 @@ class SandboxPool internal constructor(
         }
     }
 
-    private fun requestReconcile() {
-        if (lifecycleState.get() != LifecycleState.RUNNING || !warmupSubmissionsOpen.get()) return
-        val exec = scheduler ?: return
-        if (!reconcileQueued.compareAndSet(false, true)) return
+    private fun requestReconcile(run: RunContext) {
+        if (!isCurrentRun(run) ||
+            lifecycleState.get() != LifecycleState.RUNNING ||
+            !run.warmupSubmissionsOpen.get()
+        ) {
+            return
+        }
+        val exec = run.scheduler
+        if (!run.reconcileQueued.compareAndSet(false, true)) return
         try {
             exec.execute {
-                reconcileQueued.set(false)
+                run.reconcileQueued.set(false)
                 try {
-                    runReconcileTick()
+                    runReconcileTick(run)
                 } catch (t: Throwable) {
                     logger.error("Pool completion-driven reconcile failed: pool_name={}", config.poolName, t)
                 }
             }
         } catch (e: Exception) {
-            reconcileQueued.set(false)
+            run.reconcileQueued.set(false)
             if (lifecycleState.get() == LifecycleState.RUNNING) {
                 logger.debug(
                     "Pool completion-driven reconcile submit rejected: pool_name={} error={}",
@@ -788,14 +825,19 @@ class SandboxPool internal constructor(
     }
 
     private fun submitWarmups(
+        run: RunContext,
         count: Int,
-        executor: ExecutorService,
     ) {
         repeat(count) {
-            if (lifecycleState.get() != LifecycleState.RUNNING || !warmupSubmissionsOpen.get()) return
-            val task = TrackedWarmupTask()
+            if (!isCurrentRun(run) ||
+                lifecycleState.get() != LifecycleState.RUNNING ||
+                !run.warmupSubmissionsOpen.get()
+            ) {
+                return
+            }
+            val task = TrackedWarmupTask(run)
             try {
-                executor.execute(task)
+                run.warmupExecutor.execute(task)
             } catch (e: Exception) {
                 logger.debug(
                     "Pool warmup submit rejected: pool_name={} error={}",
@@ -808,11 +850,13 @@ class SandboxPool internal constructor(
         }
     }
 
-    private inner class TrackedWarmupTask : Runnable {
+    private inner class TrackedWarmupTask(
+        private val run: RunContext,
+    ) : Runnable {
         private val completed = AtomicBoolean(false)
 
         init {
-            warmingCount.incrementAndGet()
+            run.warmingCount.incrementAndGet()
             beginOperation()
         }
 
@@ -832,13 +876,8 @@ class SandboxPool internal constructor(
 
         private fun dispatchCompletion(outcome: WarmupOutcome) {
             val completion = Runnable { complete(outcome) }
-            val exec = scheduler
-            if (exec == null) {
-                completion.run()
-                return
-            }
             try {
-                exec.execute(completion)
+                run.scheduler.execute(completion)
             } catch (e: Exception) {
                 logger.debug(
                     "Pool warmup completion submit rejected, handling inline: pool_name={} error={}",
@@ -852,11 +891,11 @@ class SandboxPool internal constructor(
         private fun complete(outcome: WarmupOutcome) {
             if (!completed.compareAndSet(false, true)) return
             try {
-                handleWarmupOutcome(outcome)
+                handleWarmupOutcome(run, outcome)
             } finally {
-                warmingCount.decrementAndGet()
+                run.warmingCount.decrementAndGet()
                 endOperation()
-                requestReconcile()
+                requestReconcile(run)
             }
         }
     }
@@ -873,11 +912,14 @@ class SandboxPool internal constructor(
         data object Cancelled : WarmupOutcome
     }
 
-    private fun handleWarmupOutcome(outcome: WarmupOutcome) {
+    private fun handleWarmupOutcome(
+        run: RunContext,
+        outcome: WarmupOutcome,
+    ) {
         when (outcome) {
-            is WarmupOutcome.Success -> commitWarmupSandbox(outcome.sandboxId)
+            is WarmupOutcome.Success -> commitWarmupSandbox(run, outcome.sandboxId)
             is WarmupOutcome.Failure -> {
-                if (lifecycleState.get() == LifecycleState.RUNNING) {
+                if (isCurrentRun(run) && lifecycleState.get() == LifecycleState.RUNNING) {
                     reconcileState.recordAsyncFailure(outcome.error.message)
                 }
             }
@@ -885,48 +927,67 @@ class SandboxPool internal constructor(
         }
     }
 
-    private fun commitWarmupSandbox(sandboxId: String) {
-        val state = lifecycleState.get()
-        if (state != LifecycleState.RUNNING && state != LifecycleState.DRAINING) {
-            scheduleKillDiscardedAlive(config.poolName, listOf(sandboxId), source = "warmup-stopped")
-            return
-        }
-
+    private fun commitWarmupSandbox(
+        run: RunContext,
+        sandboxId: String,
+    ) {
+        var cleanupSource: String? = null
+        run.commitLock.lock()
         try {
-            ensurePoolNamespaceActive()
-            if (!stateStore.renewPrimaryLock(config.poolName, config.ownerId, config.primaryLockTtl)) {
-                primaryOwned.set(false)
-                logger.warn(
-                    "Pool lost primary lock before putIdle; dropping warmup sandbox: " +
-                        "pool_name={} sandbox_id={}",
-                    config.poolName,
-                    sandboxId,
-                )
-                scheduleKillDiscardedAlive(config.poolName, listOf(sandboxId), source = "warmup-lock-lost")
-                return
+            val state = lifecycleState.get()
+            if (!isCurrentRun(run) || (state != LifecycleState.RUNNING && state != LifecycleState.DRAINING)) {
+                cleanupSource = "warmup-stale-run"
+            } else {
+                try {
+                    ensurePoolNamespaceActive()
+                    if (!stateStore.renewPrimaryLock(config.poolName, config.ownerId, config.primaryLockTtl)) {
+                        run.primaryOwned.set(false)
+                        logger.warn(
+                            "Pool lost primary lock before putIdle; dropping warmup sandbox: " +
+                                "pool_name={} sandbox_id={} run={}",
+                            config.poolName,
+                            sandboxId,
+                            run.generation,
+                        )
+                        cleanupSource = "warmup-lock-lost"
+                    } else {
+                        stateStore.putIdle(config.poolName, sandboxId)
+                        reconcileState.recordSuccess()
+                        logger.debug(
+                            "Pool warmup sandbox entered idle: pool_name={} sandbox_id={} run={}",
+                            config.poolName,
+                            sandboxId,
+                            run.generation,
+                        )
+                    }
+                } catch (e: Exception) {
+                    if (isCurrentRun(run) && lifecycleState.get() == LifecycleState.RUNNING) {
+                        reconcileState.recordAsyncFailure(e.message)
+                    }
+                    try {
+                        stateStore.removeIdle(config.poolName, sandboxId)
+                    } catch (_: Exception) {
+                        // best-effort remove before remote cleanup
+                    }
+                    cleanupSource = "warmup-commit-failed"
+                    logger.warn(
+                        "Pool warmup commit failed; dropped sandbox: pool_name={} sandbox_id={} run={} error={}",
+                        config.poolName,
+                        sandboxId,
+                        run.generation,
+                        e.message,
+                    )
+                }
             }
-            stateStore.putIdle(config.poolName, sandboxId)
-            reconcileState.recordSuccess()
-            logger.debug(
-                "Pool warmup sandbox entered idle: pool_name={} sandbox_id={}",
+        } finally {
+            run.commitLock.unlock()
+        }
+        cleanupSource?.let { source ->
+            scheduleKillDiscardedAlive(
                 config.poolName,
-                sandboxId,
-            )
-        } catch (e: Exception) {
-            if (lifecycleState.get() == LifecycleState.RUNNING) {
-                reconcileState.recordAsyncFailure(e.message)
-            }
-            try {
-                stateStore.removeIdle(config.poolName, sandboxId)
-            } catch (_: Exception) {
-                // best-effort remove before remote cleanup
-            }
-            scheduleKillDiscardedAlive(config.poolName, listOf(sandboxId), source = "warmup-commit-failed")
-            logger.warn(
-                "Pool warmup commit failed; dropped sandbox: pool_name={} sandbox_id={} error={}",
-                config.poolName,
-                sandboxId,
-                e.message,
+                listOf(sandboxId),
+                source = source,
+                executor = run.warmupExecutor,
             )
         }
     }
@@ -1289,6 +1350,9 @@ class SandboxPool internal constructor(
     }
 
     private fun stopReconcile() {
+        val run = currentRun
+        run?.warmupSubmissionsOpen?.set(false)
+        retireRun(run)
         reconcileTask?.cancel(true)
         reconcileTask = null
         primaryHeartbeatTask?.cancel(true)
@@ -1297,8 +1361,8 @@ class SandboxPool internal constructor(
         warmupExecutor = null
         scheduler?.let { shutdownExecutor(it, "scheduler") }
         scheduler = null
-        reconcileQueued.set(false)
-        releasePrimaryLockBestEffort()
+        run?.reconcileQueued?.set(false)
+        releasePrimaryLockBestEffort(run)
     }
 
     private fun beginGracefulReconcileStop() {
@@ -1307,17 +1371,21 @@ class SandboxPool internal constructor(
     }
 
     private fun completeGracefulReconcileStop() {
+        val run = currentRun
+        retireRun(run)
         warmupExecutor?.let { shutdownExecutor(it, "warmup") }
         warmupExecutor = null
         primaryHeartbeatTask?.cancel(false)
         primaryHeartbeatTask = null
         scheduler?.let { shutdownExecutor(it, "scheduler") }
         scheduler = null
-        reconcileQueued.set(false)
-        releasePrimaryLockBestEffort()
+        run?.reconcileQueued?.set(false)
+        releasePrimaryLockBestEffort(run)
     }
 
     private fun forceStopReconcileAfterGracefulDrain() {
+        val run = currentRun
+        retireRun(run)
         // Stop warmup workers first while the controller remains alive so interrupted workers can
         // still deliver completion cleanup and release their tracked operation slots.
         warmupExecutor?.let { forceShutdownExecutor(it, "warmup") }
@@ -1326,27 +1394,29 @@ class SandboxPool internal constructor(
         primaryHeartbeatTask = null
         scheduler?.let { shutdownExecutor(it, "scheduler") }
         scheduler = null
-        reconcileQueued.set(false)
-        releasePrimaryLockBestEffort()
+        run?.reconcileQueued?.set(false)
+        releasePrimaryLockBestEffort(run)
     }
 
     private fun stopAfterNamespaceDestroyed() {
         if (!lifecycleState.compareAndSet(LifecycleState.RUNNING, LifecycleState.STOPPED)) return
+        val run = currentRun
+        run?.warmupSubmissionsOpen?.set(false)
+        retireRun(run)
         reconcileTask?.cancel(false)
         reconcileTask = null
         primaryHeartbeatTask?.cancel(false)
         primaryHeartbeatTask = null
-        warmupSubmissionsOpen.set(false)
         warmupExecutor?.let { completeDroppedTasks(it.shutdownNow()) }
         warmupExecutor = null
         scheduler?.shutdown()
         scheduler = null
-        reconcileQueued.set(false)
-        releasePrimaryLockBestEffort()
+        run?.reconcileQueued?.set(false)
+        releasePrimaryLockBestEffort(run)
         closeProvider()
     }
 
-    private fun releasePrimaryLockBestEffort() {
+    private fun releasePrimaryLockBestEffort(run: RunContext? = currentRun) {
         try {
             stateStore.releasePrimaryLock(config.poolName, config.ownerId)
         } catch (e: Exception) {
@@ -1357,7 +1427,7 @@ class SandboxPool internal constructor(
                 e.message,
             )
         } finally {
-            primaryOwned.set(false)
+            run?.primaryOwned?.set(false)
         }
     }
 
@@ -1424,6 +1494,41 @@ class SandboxPool internal constructor(
             logger.warn("Error closing pool SandboxManager", e)
         }
         sandboxManager = null
+    }
+
+    private fun isCurrentRun(run: RunContext): Boolean = currentRun === run && run.active.get()
+
+    private fun retireRun(run: RunContext?) {
+        if (run == null) return
+        run.commitLock.lock()
+        try {
+            run.active.set(false)
+            if (currentRun === run) {
+                currentRun = null
+            }
+        } finally {
+            run.commitLock.unlock()
+        }
+    }
+
+    /**
+     * Internal identity and executors for one start/shutdown lifecycle.
+     *
+     * Warmup workers capture this context so a task that outlives forced shutdown can only
+     * complete against the scheduler that submitted it. [commitLock] linearizes retirement
+     * with the final primary-lock renewal and idle-store commit.
+     */
+    private class RunContext(
+        val generation: Long,
+        val scheduler: ScheduledExecutorService,
+        val warmupExecutor: ExecutorService,
+    ) {
+        val active = AtomicBoolean(true)
+        val commitLock = ReentrantLock()
+        val warmingCount = AtomicInteger(0)
+        val warmupSubmissionsOpen = AtomicBoolean(true)
+        val reconcileQueued = AtomicBoolean(false)
+        val primaryOwned = AtomicBoolean(false)
     }
 
     @Suppress("ktlint:standard:property-naming")
