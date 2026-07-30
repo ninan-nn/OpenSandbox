@@ -40,6 +40,7 @@ import com.alibaba.opensandbox.sandbox.infrastructure.pool.PoolReconciler
 import com.alibaba.opensandbox.sandbox.infrastructure.pool.ReconcileState
 import org.slf4j.LoggerFactory
 import java.time.Duration
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
@@ -669,6 +670,7 @@ class SandboxPool internal constructor(
             when (task) {
                 is TrackedCleanupTask -> task.completeIfDropped()
                 is TrackedWarmupTask -> task.completeIfDropped()
+                is TrackedWarmupCompletionTask -> task.completeIfDropped()
             }
         }
     }
@@ -875,7 +877,8 @@ class SandboxPool internal constructor(
         }
 
         private fun dispatchCompletion(outcome: WarmupOutcome) {
-            val completion = Runnable { complete(outcome) }
+            val completion = TrackedWarmupCompletionTask(run, this, outcome)
+            run.pendingWarmupCompletions.add(completion)
             try {
                 run.scheduler.execute(completion)
             } catch (e: Exception) {
@@ -888,7 +891,7 @@ class SandboxPool internal constructor(
             }
         }
 
-        private fun complete(outcome: WarmupOutcome) {
+        fun complete(outcome: WarmupOutcome) {
             if (!completed.compareAndSet(false, true)) return
             try {
                 handleWarmupOutcome(run, outcome)
@@ -898,6 +901,36 @@ class SandboxPool internal constructor(
                 requestReconcile(run)
             }
         }
+    }
+
+    /**
+     * Tracks a warmup outcome while it waits in the controller queue.
+     *
+     * Scheduled executors may wrap submitted [Runnable]s before returning them from `shutdownNow()`,
+     * so [RunContext.pendingWarmupCompletions] is the authoritative registry. Both normal execution
+     * and forced shutdown finish the original warmup through this task; the warmup's CAS keeps that
+     * completion exactly once.
+     */
+    private inner class TrackedWarmupCompletionTask(
+        private val run: RunContext,
+        private val warmupTask: TrackedWarmupTask,
+        private val outcome: WarmupOutcome,
+    ) : Runnable {
+        override fun run() {
+            try {
+                warmupTask.complete(outcome)
+            } finally {
+                run.pendingWarmupCompletions.remove(this)
+            }
+        }
+
+        fun completeIfDropped() {
+            run()
+        }
+    }
+
+    private fun completePendingWarmupCompletions(run: RunContext?) {
+        run?.pendingWarmupCompletions?.toList()?.forEach { it.completeIfDropped() }
     }
 
     private sealed interface WarmupOutcome {
@@ -1370,6 +1403,7 @@ class SandboxPool internal constructor(
         warmupExecutor = null
         scheduler?.let { shutdownExecutor(it, "scheduler") }
         scheduler = null
+        completePendingWarmupCompletions(run)
         run?.reconcileQueued?.set(false)
         releasePrimaryLockBestEffort(run)
     }
@@ -1388,6 +1422,7 @@ class SandboxPool internal constructor(
         primaryHeartbeatTask = null
         scheduler?.let { shutdownExecutor(it, "scheduler") }
         scheduler = null
+        completePendingWarmupCompletions(run)
         run?.reconcileQueued?.set(false)
         releasePrimaryLockBestEffort(run)
     }
@@ -1403,6 +1438,7 @@ class SandboxPool internal constructor(
         primaryHeartbeatTask = null
         scheduler?.let { shutdownExecutor(it, "scheduler") }
         scheduler = null
+        completePendingWarmupCompletions(run)
         run?.reconcileQueued?.set(false)
         releasePrimaryLockBestEffort(run)
     }
@@ -1420,6 +1456,7 @@ class SandboxPool internal constructor(
         warmupExecutor = null
         scheduler?.shutdown()
         scheduler = null
+        completePendingWarmupCompletions(run)
         run?.reconcileQueued?.set(false)
         releasePrimaryLockBestEffort(run)
         closeProvider()
@@ -1541,6 +1578,7 @@ class SandboxPool internal constructor(
         val inFlightOperations = AtomicInteger(0)
         val inFlightLock = ReentrantLock()
         val inFlightZero: Condition = inFlightLock.newCondition()
+        val pendingWarmupCompletions = ConcurrentHashMap.newKeySet<TrackedWarmupCompletionTask>()
     }
 
     @Suppress("ktlint:standard:property-naming")

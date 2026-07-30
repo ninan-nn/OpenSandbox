@@ -637,6 +637,80 @@ class SandboxPoolTest {
     }
 
     @Test
+    fun `forced scheduler shutdown completes queued warmup outcome and cleans sandbox`() {
+        val store = InMemoryPoolStateStore()
+        val manager = mockk<SandboxManager>(relaxed = true)
+        val sandbox = mockk<Sandbox>(relaxed = true)
+        val warmupStarted = CountDownLatch(1)
+        val releaseWarmup = CountDownLatch(1)
+        val warmupClosed = CountDownLatch(1)
+        val controllerBlocked = CountDownLatch(1)
+        val releaseController = CountDownLatch(1)
+        val sandboxKilled = CountDownLatch(1)
+        every { sandbox.id } returns "queued-completion-sandbox"
+        every { sandbox.close() } answers {
+            warmupClosed.countDown()
+        }
+        every { manager.killSandbox("queued-completion-sandbox") } answers {
+            sandboxKilled.countDown()
+        }
+
+        val pool =
+            SandboxPool(
+                config =
+                    PoolConfig.builder()
+                        .poolName("queued-completion-pool")
+                        .ownerId("test-owner")
+                        .maxIdle(1)
+                        .warmupConcurrency(1)
+                        .stateStore(store)
+                        .connectionConfig(ConnectionConfig.builder().build())
+                        .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
+                        .sandboxCreator(PooledSandboxCreator { sandbox })
+                        .warmupSkipHealthCheck()
+                        .warmupSandboxPreparer(
+                            SandboxPreparer {
+                                warmupStarted.countDown()
+                                releaseWarmup.await()
+                            },
+                        ).drainTimeout(Duration.ofMillis(50))
+                        .reconcileInterval(Duration.ofSeconds(30))
+                        .build(),
+                sandboxManagerFactory = { manager },
+            )
+
+        pool.start()
+        try {
+            assertTrue(warmupStarted.await(5, TimeUnit.SECONDS))
+            val retiredRunInFlight = currentRunInFlight(pool)
+            val pendingCompletions = currentRunPendingWarmupCompletions(pool)
+            val controller = getPrivateField<ScheduledExecutorService>(pool, "scheduler")
+            controller.execute {
+                controllerBlocked.countDown()
+                awaitIgnoringInterrupt(releaseController)
+            }
+            assertTrue(controllerBlocked.await(5, TimeUnit.SECONDS))
+
+            releaseWarmup.countDown()
+            assertTrue(warmupClosed.await(5, TimeUnit.SECONDS))
+            awaitCondition { pendingCompletions.size == 1 }
+            assertEquals(1, retiredRunInFlight.get())
+            assertEquals(0, store.snapshotCounters("queued-completion-pool").idleCount)
+
+            shutdownWithoutWaitingForUncooperativeWorker(pool)
+
+            assertTrue(sandboxKilled.await(5, TimeUnit.SECONDS))
+            awaitCondition { retiredRunInFlight.get() == 0 }
+            assertEquals(0, store.snapshotCounters("queued-completion-pool").idleCount)
+            verify(exactly = 1) { manager.killSandbox("queued-completion-sandbox") }
+        } finally {
+            releaseWarmup.countDown()
+            releaseController.countDown()
+            pool.shutdown(graceful = false)
+        }
+    }
+
+    @Test
     fun `shutdown graceful waits for asynchronous discarded sandbox cleanup`() {
         val store = DiscardingPoolStateStore()
         val manager = mockk<SandboxManager>(relaxed = true)
@@ -1628,6 +1702,11 @@ class SandboxPoolTest {
     private fun currentRunInFlight(pool: SandboxPool): AtomicInteger {
         val run = getPrivateField<Any>(pool, "currentRun")
         return getPrivateField(run, "inFlightOperations")
+    }
+
+    private fun currentRunPendingWarmupCompletions(pool: SandboxPool): Set<*> {
+        val run = getPrivateField<Any>(pool, "currentRun")
+        return getPrivateField(run, "pendingWarmupCompletions")
     }
 
     private fun awaitCondition(
