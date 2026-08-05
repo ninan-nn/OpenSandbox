@@ -61,6 +61,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
@@ -1123,6 +1124,71 @@ class SandboxPoolTest {
     }
 
     @Test
+    fun `run retirement is atomic with taking idle`() {
+        val store = BlockingTakePoolStateStore()
+        val manager = mockk<SandboxManager>(relaxed = true)
+        val newSandbox = mockk<Sandbox>(relaxed = true)
+        every { newSandbox.id } returns "new-run-idle"
+
+        val config =
+            PoolConfig.builder()
+                .poolName("atomic-take-pool")
+                .ownerId("atomic-take-owner")
+                .maxIdle(0)
+                .stateStore(store)
+                .connectionConfig(ConnectionConfig.builder().build())
+                .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
+                .drainTimeout(Duration.ofMillis(50))
+                .reconcileInterval(Duration.ofSeconds(30))
+                .build()
+        val pool =
+            SandboxPool(
+                config = config,
+                sandboxManagerFactory = { manager },
+                idleSandboxConnector = { newSandbox },
+            )
+        val acquireExecutor = Executors.newSingleThreadExecutor()
+        val restartExecutor = Executors.newSingleThreadExecutor()
+        val restartStarted = CountDownLatch(1)
+
+        pool.start()
+        try {
+            val oldAcquire =
+                acquireExecutor.submit<Sandbox> {
+                    pool.acquire(policy = AcquirePolicy.FAIL_FAST)
+                }
+            assertTrue(store.takeStarted.await(5, TimeUnit.SECONDS))
+
+            val restart =
+                restartExecutor.submit {
+                    restartStarted.countDown()
+                    pool.shutdown(graceful = false)
+                    pool.start()
+                    store.putIdle("atomic-take-pool", "new-run-idle")
+                }
+            assertTrue(restartStarted.await(5, TimeUnit.SECONDS))
+            assertThrows(TimeoutException::class.java) {
+                restart.get(100, TimeUnit.MILLISECONDS)
+            }
+
+            store.releaseTake.countDown()
+            restart.get(5, TimeUnit.SECONDS)
+            assertThrows(ExecutionException::class.java) {
+                oldAcquire.get(5, TimeUnit.SECONDS)
+            }
+
+            assertEquals(1, store.snapshotCounters("atomic-take-pool").idleCount)
+            assertSame(newSandbox, pool.acquire(policy = AcquirePolicy.FAIL_FAST))
+            verify(exactly = 0) { manager.killSandbox("new-run-idle") }
+        } finally {
+            store.releaseTake.countDown()
+            acquireExecutor.shutdownNow()
+            restartExecutor.shutdownNow()
+            pool.shutdown(graceful = false)
+        }
+    }
+
+    @Test
     fun `retired acquire cannot consume idle from restarted run`() {
         val store = InMemoryPoolStateStore()
         val manager = mockk<SandboxManager>(relaxed = true)
@@ -1923,6 +1989,22 @@ class SandboxPoolTest {
                 sandboxId = null,
                 discardedAliveSandboxIds = listOf("near-expiry-id"),
             )
+    }
+
+    private class BlockingTakePoolStateStore(
+        private val delegate: InMemoryPoolStateStore = InMemoryPoolStateStore(),
+    ) : PoolStateStore by delegate {
+        val takeStarted = CountDownLatch(1)
+        val releaseTake = CountDownLatch(1)
+
+        override fun tryTakeIdle(
+            poolName: String,
+            minRemainingTtl: Duration,
+        ): TakeIdleResult {
+            takeStarted.countDown()
+            releaseTake.await()
+            return delegate.tryTakeIdle(poolName, minRemainingTtl)
+        }
     }
 
     @Suppress("UNCHECKED_CAST")

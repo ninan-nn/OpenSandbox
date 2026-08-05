@@ -53,6 +53,7 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.locks.Condition
 import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 /**
  * Client-side sandbox pool for acquiring ready sandboxes with predictable latency.
@@ -257,11 +258,15 @@ class SandboxPool internal constructor(
             var attempt = 0
             var loopExhausted = true
             while (attempt < maxAttempts) {
-                ensureAcquireRunActive(run)
                 attempt++
                 val takeResult =
                     try {
-                        stateStore.tryTakeIdle(poolName, config.acquireMinRemainingTtl)
+                        // Linearize the active-run fence with the destructive take against retireRun.
+                        // Otherwise an old acquire could pop an idle committed by a restarted run.
+                        run.commitLock.withLock {
+                            ensureAcquireRunActive(run)
+                            stateStore.tryTakeIdle(poolName, config.acquireMinRemainingTtl)
+                        }
                     } catch (e: PoolStateStoreUnavailableException) {
                         // State store outage. Per OSEP-0005, under policies that fall through to
                         // direct-create on empty idle we degrade to that fallback so the pool
