@@ -24,6 +24,7 @@ import com.alibaba.opensandbox.sandbox.domain.exceptions.PoolDestroyedException
 import com.alibaba.opensandbox.sandbox.domain.exceptions.PoolEmptyException
 import com.alibaba.opensandbox.sandbox.domain.exceptions.PoolNotRunningException
 import com.alibaba.opensandbox.sandbox.domain.exceptions.PoolStateStoreUnavailableException
+import com.alibaba.opensandbox.sandbox.domain.exceptions.SandboxReadyTimeoutException
 import com.alibaba.opensandbox.sandbox.domain.pool.AcquirePolicy
 import com.alibaba.opensandbox.sandbox.domain.pool.IdleEntry
 import com.alibaba.opensandbox.sandbox.domain.pool.PoolConfig
@@ -45,10 +46,16 @@ import okhttp3.ConnectionPool
 import org.slf4j.LoggerFactory
 import java.time.Duration
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.DelayQueue
+import java.util.concurrent.Delayed
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.Semaphore
+import java.util.concurrent.SynchronousQueue
+import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -57,6 +64,7 @@ import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.locks.Condition
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
+import kotlin.math.ceil
 
 /**
  * Client-side sandbox pool for acquiring ready sandboxes with predictable latency.
@@ -165,7 +173,9 @@ class SandboxPool internal constructor(
     private val lifecycleState = AtomicReference(LifecycleState.NOT_STARTED)
     private var sandboxManager: SandboxManager? = null
     private var scheduler: ScheduledExecutorService? = null
+    private var createExecutor: ExecutorService? = null
     private var warmupExecutor: ExecutorService? = null
+    private var warmupDispatcher: ExecutorService? = null
     private var reconcileTask: ScheduledFuture<*>? = null
     private var primaryHeartbeatTask: ScheduledFuture<*>? = null
     private val runSequence = AtomicLong(0)
@@ -188,18 +198,23 @@ class SandboxPool internal constructor(
             sandboxManager = createSandboxManager()
             stateStore.setIdleEntryTtl(config.poolName, config.idleTimeout)
             stateStore.setMaxIdle(config.poolName, config.maxIdle)
-            val warmupExec =
-                Executors.newFixedThreadPool(config.warmupConcurrency.coerceAtLeast(1)) { runnable ->
-                    Thread(runnable, "sandbox-pool-warmup-${config.poolName}").apply { isDaemon = true }
+            val createExec = createElasticExecutor(createExecutorMaxSize(), "create")
+            val warmupExec = createElasticExecutor(config.warmupConcurrency, "warmup")
+            val dispatcher =
+                Executors.newSingleThreadExecutor { runnable ->
+                    Thread(runnable, "sandbox-pool-warmup-dispatch-${config.poolName}").apply { isDaemon = true }
                 }
+            createExecutor = createExec
             warmupExecutor = warmupExec
+            warmupDispatcher = dispatcher
             val exec =
                 Executors.newSingleThreadScheduledExecutor { r ->
                     Thread(r, "sandbox-pool-reconcile-${config.poolName}").apply { isDaemon = true }
                 }
             scheduler = exec
-            val run = RunContext(runSequence.incrementAndGet(), exec, warmupExec)
+            val run = RunContext(runSequence.incrementAndGet(), exec, createExec, warmupExec, config.warmupConcurrency)
             currentRun = run
+            dispatcher.execute { dispatchWarmups(run) }
             val primaryHeartbeatIntervalMs =
                 minOf(
                     RECONCILE_INTERVAL_MS,
@@ -865,7 +880,6 @@ class SandboxPool internal constructor(
             when (task) {
                 is TrackedCleanupTask -> task.completeIfDropped()
                 is TrackedWarmupTask -> task.completeIfDropped()
-                is TrackedWarmupCompletionTask -> task.completeIfDropped()
             }
         }
     }
@@ -938,6 +952,24 @@ class SandboxPool internal constructor(
 
     private fun createSandboxManager(): SandboxManager = sandboxManagerFactory(connectionConfig.copyWithoutConnectionPool())
 
+    private fun createExecutorMaxSize(): Int = ceil(config.warmupCreateQps * CREATE_EXECUTOR_HEADROOM).toInt()
+
+    private fun createElasticExecutor(
+        maximumPoolSize: Int,
+        role: String,
+    ): ThreadPoolExecutor =
+        ThreadPoolExecutor(
+            0,
+            maximumPoolSize.coerceAtLeast(1),
+            EXECUTOR_KEEP_ALIVE_SECONDS,
+            TimeUnit.SECONDS,
+            SynchronousQueue(),
+            { runnable ->
+                Thread(runnable, "sandbox-pool-$role-${config.poolName}").apply { isDaemon = true }
+            },
+            ThreadPoolExecutor.AbortPolicy(),
+        )
+
     private fun runReconcileTick(run: RunContext) {
         if (!isCurrentRun(run) || lifecycleState.get() != LifecycleState.RUNNING) return
         if (!isPoolNamespaceActive()) {
@@ -951,17 +983,26 @@ class SandboxPool internal constructor(
             if (!isPoolNamespaceActive()) return
             val reconcileConfig = config.withMaxIdle(resolveMaxIdle())
             try {
-                run.primaryOwned.set(
+                val primaryOwned =
                     PoolReconciler.runReconcileTick(
                         config = reconcileConfig,
                         stateStore = stateStore,
-                        onDiscardSandbox = { sandboxId -> killSandboxBestEffort(sandboxId) },
+                        onDiscardSandbox = { sandboxId ->
+                            scheduleKillDiscardedAlive(
+                                config.poolName,
+                                listOf(sandboxId),
+                                source = "reconcile-discard",
+                                executor = run.warmupExecutor,
+                                run = run,
+                            )
+                        },
+                        onPrimaryAcquired = { markPrimaryAcquired(run) },
                         warmingCount = run.warmingCount.get(),
                         submitWarmups = { count -> submitWarmups(run, count) },
-                    ),
-                )
+                    )
+                if (!primaryOwned) markPrimaryLost(run)
             } catch (e: Exception) {
-                run.primaryOwned.set(false)
+                markPrimaryLost(run)
                 throw e
             }
         } finally {
@@ -981,12 +1022,40 @@ class SandboxPool internal constructor(
                 config.primaryLockTtl,
             )
         if (!renewed) {
-            run.primaryOwned.set(false)
+            markPrimaryLost(run)
             logger.trace(
                 "Pool primary heartbeat skipped (not current owner): pool_name={} owner_id={}",
                 config.poolName,
                 config.ownerId,
             )
+        }
+    }
+
+    private fun markPrimaryAcquired(run: RunContext) {
+        if (run.primaryOwned.compareAndSet(false, true)) {
+            run.leaderEpoch.incrementAndGet()
+        }
+    }
+
+    private fun markPrimaryLost(run: RunContext) {
+        if (!run.primaryOwned.compareAndSet(true, false)) return
+        run.leaderEpoch.incrementAndGet()
+        val cancellation = Runnable { cancelDelayedWarmups(run, "warmup-leader-lost") }
+        try {
+            run.scheduler.execute(cancellation)
+        } catch (_: RejectedExecutionException) {
+            cancellation.run()
+        }
+    }
+
+    private fun cancelDelayedWarmups(
+        run: RunContext,
+        source: String,
+    ) {
+        run.delayQueue.toList().forEach { task ->
+            if (run.delayQueue.remove(task)) {
+                task.completeCancelled(source)
+            }
         }
     }
 
@@ -1001,12 +1070,12 @@ class SandboxPool internal constructor(
             ) {
                 return
             }
-            val task = TrackedWarmupTask(run, submittedEpochNanos())
+            val task = TrackedWarmupTask(run, run.leaderEpoch.get(), submittedEpochNanos())
             try {
-                run.warmupExecutor.execute(task)
+                run.createExecutor.execute(task)
             } catch (e: Exception) {
                 logger.debug(
-                    "Pool warmup submit rejected: pool_name={} error={}",
+                    "Pool warmup create submit rejected: pool_name={} error={}",
                     config.poolName,
                     e.message,
                 )
@@ -1025,274 +1094,403 @@ class SandboxPool internal constructor(
 
     private inner class TrackedWarmupTask(
         private val run: RunContext,
+        private val leaderEpoch: Long,
         private val submittedEpochNanos: Long,
-    ) : Runnable {
+    ) : Runnable, Delayed {
         private val completed = AtomicBoolean(false)
+        private var sandbox: Sandbox? = null
+        private var trace: WarmupTrace? = null
+
+        @Volatile
+        private var stage: WarmupStage = WarmupStage.CREATING
+
+        @Volatile
+        private var dueNanos: Long = 0L
+
+        private var stageDeadlineNanos: Long = 0L
+        private var finalAttempt: Boolean = false
+        private var preparerExecuted: Boolean = false
+        private var localResourcesClosed: Boolean = false
+        private var lastHealthCheckError: Throwable? = null
 
         init {
             run.warmingCount.incrementAndGet()
+            run.activeWarmups.add(this)
             beginOperation(run)
         }
 
         override fun run() {
-            // Backdate the root span to task submission so queue-wait time
-            // (submit -> run) is visible inside the trace.
-            val trace =
+            trace =
                 poolTracer.startWarmupRoot(
                     poolName = config.poolName,
                     ownerId = config.ownerId,
                     runGeneration = run.generation,
                     submittedEpochNanos = submittedEpochNanos,
                 )
-            val outcome: WarmupOutcome
-            if (trace == null) {
-                outcome = captureOutcome()
-            } else {
-                outcome = trace.withCurrent { captureOutcome() }
-                if (outcome is WarmupOutcome.Failure) {
-                    trace.endFailure(outcome.error)
-                }
+            if (!canAdvance()) {
+                completeCancelled("warmup-stale-before-create")
+                return
             }
-            // Keep the trace open on success: the commit phase (scheduler
-            // thread) ends it after the sandbox is put idle.
-            dispatchCompletion(outcome, if (outcome is WarmupOutcome.Success) trace else null)
-        }
-
-        private fun captureOutcome(): WarmupOutcome =
             try {
-                WarmupOutcome.Success(createOneSandbox())
+                val created = withTrace { poolTracer.withPhaseSpan(PoolTracer.WARMUP_CREATE_SPAN) { buildWarmupSandbox() } }
+                sandbox = created
+                if (!canAdvance()) {
+                    completeCancelled("warmup-stale-after-create")
+                    return
+                }
+                val now = System.nanoTime()
+                if (config.warmupSkipHealthCheck) {
+                    stage = WarmupStage.PREPARING
+                    scheduleAt(now)
+                } else {
+                    stage = WarmupStage.CHECKING_READINESS
+                    stageDeadlineNanos = saturatedAdd(now, config.warmupReadyTimeout.toNanos())
+                    val requestedFirstCheck = saturatedAdd(now, config.warmupHealthCheckInitialDelay.toNanos())
+                    finalAttempt = requestedFirstCheck >= stageDeadlineNanos
+                    scheduleAt(minOf(requestedFirstCheck, stageDeadlineNanos))
+                }
             } catch (failure: Throwable) {
-                WarmupOutcome.Failure(failure)
+                completeFailure(failure)
             }
+        }
 
         fun completeIfDropped() {
-            complete(WarmupOutcome.Cancelled, null)
+            completeCancelled("warmup-create-dropped")
         }
 
-        private fun dispatchCompletion(
-            outcome: WarmupOutcome,
-            trace: WarmupTrace?,
-        ) {
-            val completion = TrackedWarmupCompletionTask(run, this, outcome, trace)
-            run.pendingWarmupCompletions.add(completion)
+        fun processDue() {
+            if (completed.get()) return
+            if (!canAdvance()) {
+                completeCancelled("warmup-stale-run")
+                return
+            }
             try {
-                run.scheduler.execute(completion)
-            } catch (e: Exception) {
-                logger.debug(
-                    "Pool warmup completion submit rejected, handling inline: pool_name={} error={}",
-                    config.poolName,
-                    e.message,
-                )
-                completion.run()
+                withTrace { advanceStages() }
+            } catch (failure: Throwable) {
+                if (failure.isCausedByInterruption() || Thread.currentThread().isInterrupted) {
+                    Thread.currentThread().interrupt()
+                    completeCancelled("warmup-interrupted")
+                } else {
+                    completeFailure(failure)
+                }
             }
         }
 
-        fun complete(
-            outcome: WarmupOutcome,
-            trace: WarmupTrace?,
-        ) {
+        fun rescheduleAfterRejection() {
+            scheduleAt(saturatedAdd(System.nanoTime(), DISPATCH_REJECTION_RETRY_NANOS))
+        }
+
+        private fun advanceStages() {
+            while (!completed.get()) {
+                if (!canAdvance()) {
+                    completeCancelled("warmup-stale-run")
+                    return
+                }
+                when (stage) {
+                    WarmupStage.CREATING -> error("Create task cannot run on post-create executor")
+                    WarmupStage.CHECKING_READINESS -> {
+                        if (!runHealthCheck(HealthStage.READINESS)) return
+                        stage = WarmupStage.PREPARING
+                    }
+                    WarmupStage.PREPARING -> {
+                        if (!preparerExecuted) {
+                            preparerExecuted = true
+                            poolTracer.withPhaseSpan(PoolTracer.WARMUP_PREPARE_SPAN) {
+                                config.warmupSandboxPreparer?.prepare(requireSandbox())
+                            }
+                        }
+                        if (config.warmupPostPrepareHealthCheck == null) {
+                            stage = WarmupStage.RENEWING
+                        } else {
+                            val now = System.nanoTime()
+                            stage = WarmupStage.CHECKING_POST_PREPARE
+                            stageDeadlineNanos =
+                                saturatedAdd(now, config.warmupPostPrepareHealthCheckTimeout.toNanos())
+                            finalAttempt = false
+                            lastHealthCheckError = null
+                        }
+                    }
+                    WarmupStage.CHECKING_POST_PREPARE -> {
+                        if (!runHealthCheck(HealthStage.POST_PREPARE)) return
+                        stage = WarmupStage.RENEWING
+                    }
+                    WarmupStage.RENEWING -> {
+                        val current = requireSandbox()
+                        poolTracer.withPhaseSpan(PoolTracer.WARMUP_RENEW_SPAN) {
+                            current.renew(config.idleTimeout)
+                        }
+                        val sandboxId = current.id
+                        current.close()
+                        localResourcesClosed = true
+                        stage = WarmupStage.COMMITTING
+                        val cleanupSource =
+                            poolTracer.withPhaseSpan(PoolTracer.WARMUP_COMMIT_SPAN) {
+                                commitWarmupSandbox(run, leaderEpoch, sandboxId)
+                            }
+                        if (cleanupSource == null) {
+                            completeSuccess(sandboxId)
+                        } else {
+                            scheduleKillDiscardedAlive(
+                                config.poolName,
+                                listOf(sandboxId),
+                                source = cleanupSource,
+                                executor = run.warmupExecutor,
+                                run = run,
+                            )
+                            completeDropped(cleanupSource)
+                        }
+                        return
+                    }
+                    WarmupStage.COMMITTING -> error("Commit stage cannot be re-entered")
+                }
+            }
+        }
+
+        private fun runHealthCheck(healthStage: HealthStage): Boolean {
+            val current = requireSandbox()
+            val isFinalAttempt = finalAttempt || System.nanoTime() >= stageDeadlineNanos
+            val healthy =
+                try {
+                    val result =
+                        when (healthStage) {
+                            HealthStage.READINESS -> config.warmupHealthCheck?.invoke(current) ?: current.ping()
+                            HealthStage.POST_PREPARE ->
+                                requireNotNull(config.warmupPostPrepareHealthCheck).invoke(current)
+                        }
+                    lastHealthCheckError = null
+                    result
+                } catch (failure: Throwable) {
+                    if (failure.isCausedByInterruption() || Thread.currentThread().isInterrupted) throw failure
+                    lastHealthCheckError = failure
+                    false
+                }
+            if (healthy) return true
+            if (isFinalAttempt) {
+                val stageName = if (healthStage == HealthStage.READINESS) "readiness" else "post-prepare health check"
+                val detail = lastHealthCheckError?.message?.let { "; last error: $it" }.orEmpty()
+                throw SandboxReadyTimeoutException("Pool warmup $stageName timed out$detail")
+            }
+            val completedAt = System.nanoTime()
+            val requestedNext = saturatedAdd(completedAt, config.warmupHealthCheckPollingInterval.toNanos())
+            finalAttempt = requestedNext >= stageDeadlineNanos
+            scheduleAt(minOf(requestedNext, stageDeadlineNanos))
+            return false
+        }
+
+        private fun scheduleAt(nextDueNanos: Long) {
+            if (completed.get()) return
+            dueNanos = nextDueNanos
+            if (!canAdvance()) {
+                completeCancelled("warmup-stale-before-queue")
+                return
+            }
+            run.delayQueue.offer(this)
+        }
+
+        private fun completeSuccess(sandboxId: String) {
             if (!completed.compareAndSet(false, true)) return
             try {
-                handleWarmupOutcome(run, outcome, trace)
+                trace?.endSuccess(sandboxId, creationSpec.imageSpec.image)
             } finally {
-                run.warmingCount.decrementAndGet()
-                endOperation(run)
+                finish()
             }
         }
-    }
 
-    /**
-     * Tracks a warmup outcome while it waits in the controller queue.
-     *
-     * Scheduled executors may wrap submitted [Runnable]s before returning them from `shutdownNow()`,
-     * so [RunContext.pendingWarmupCompletions] is the authoritative registry. Both normal execution
-     * and forced shutdown finish the original warmup through this task; the warmup's CAS keeps that
-     * completion exactly once.
-     */
-    private inner class TrackedWarmupCompletionTask(
-        private val run: RunContext,
-        private val warmupTask: TrackedWarmupTask,
-        private val outcome: WarmupOutcome,
-        private val trace: WarmupTrace?,
-    ) : Runnable {
-        override fun run() {
+        private fun completeFailure(failure: Throwable) {
+            if (!completed.compareAndSet(false, true)) return
             try {
-                warmupTask.complete(outcome, trace)
-            } finally {
-                run.pendingWarmupCompletions.remove(this)
-            }
-        }
-
-        fun completeIfDropped() {
-            run()
-        }
-    }
-
-    private fun completePendingWarmupCompletions(run: RunContext?) {
-        run?.pendingWarmupCompletions?.toList()?.forEach { it.completeIfDropped() }
-    }
-
-    private sealed interface WarmupOutcome {
-        class Success(
-            val sandboxId: String,
-        ) : WarmupOutcome
-
-        class Failure(
-            val error: Throwable,
-        ) : WarmupOutcome
-
-        data object Cancelled : WarmupOutcome
-    }
-
-    private fun handleWarmupOutcome(
-        run: RunContext,
-        outcome: WarmupOutcome,
-        trace: WarmupTrace?,
-    ) {
-        when (outcome) {
-            is WarmupOutcome.Success -> commitWarmupSandbox(run, outcome.sandboxId, trace)
-            is WarmupOutcome.Failure -> {
+                cleanupSandbox(failure)
                 if (isCurrentRun(run) && lifecycleState.get() == LifecycleState.RUNNING) {
-                    reconcileState.recordAsyncFailure(outcome.error.message)
+                    reconcileState.recordAsyncFailure(failure.message)
                 }
+                trace?.endFailure(failure)
+                logger.warn("Pool warmup failed: pool_name={}", config.poolName, failure)
+            } finally {
+                finish()
             }
-            WarmupOutcome.Cancelled -> Unit
+        }
+
+        fun completeCancelled(source: String) {
+            if (!completed.compareAndSet(false, true)) return
+            try {
+                cleanupSandbox(null)
+                trace?.endDropped(source)
+            } finally {
+                finish()
+            }
+        }
+
+        private fun completeDropped(source: String) {
+            if (!completed.compareAndSet(false, true)) return
+            try {
+                trace?.endDropped(source)
+            } finally {
+                finish()
+            }
+        }
+
+        private fun cleanupSandbox(failure: Throwable?) {
+            val current = sandbox ?: return
+            if (!localResourcesClosed) {
+                val cleanupCause = failure ?: IllegalStateException("Warmup cancelled")
+                killWarmupSandboxAfterFailure(current, cleanupCause)
+                try {
+                    current.close()
+                } catch (closeFailure: Throwable) {
+                    if (failure != null && closeFailure !== failure) failure.addSuppressed(closeFailure)
+                }
+                localResourcesClosed = true
+            }
+        }
+
+        private fun finish() {
+            run.delayQueue.remove(this)
+            run.activeWarmups.remove(this)
+            run.warmingCount.decrementAndGet()
+            endOperation(run)
+        }
+
+        private fun requireSandbox(): Sandbox = checkNotNull(sandbox) { "Warmup sandbox is not available" }
+
+        private fun canAdvance(): Boolean {
+            val state = lifecycleState.get()
+            return isCurrentRun(run) &&
+                run.primaryOwned.get() &&
+                run.leaderEpoch.get() == leaderEpoch &&
+                (state == LifecycleState.RUNNING || state == LifecycleState.DRAINING)
+        }
+
+        private fun <T> withTrace(block: () -> T): T {
+            val currentTrace = trace
+            return if (currentTrace == null) block() else currentTrace.withCurrent(block)
+        }
+
+        override fun getDelay(unit: TimeUnit): Long = unit.convert(dueNanos - System.nanoTime(), TimeUnit.NANOSECONDS)
+
+        override fun compareTo(other: Delayed): Int {
+            if (other === this) return 0
+            return dueNanos.compareTo((other as TrackedWarmupTask).dueNanos)
+        }
+    }
+
+    private fun dispatchWarmups(run: RunContext) {
+        while (isCurrentRun(run)) {
+            var permitHeld = false
+            var dueTask: TrackedWarmupTask? = null
+            try {
+                run.warmupPermits.acquire()
+                permitHeld = true
+                val task = run.delayQueue.take()
+                dueTask = task
+                if (!isCurrentRun(run)) {
+                    task.completeCancelled("warmup-dispatcher-stopped")
+                    continue
+                }
+                run.warmupExecutor.execute {
+                    try {
+                        task.processDue()
+                    } finally {
+                        run.warmupPermits.release()
+                    }
+                }
+                permitHeld = false
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return
+            } catch (_: RejectedExecutionException) {
+                if (!isCurrentRun(run)) {
+                    dueTask?.completeCancelled("warmup-executor-stopped")
+                    return
+                }
+                dueTask?.rescheduleAfterRejection()
+            } finally {
+                if (permitHeld) run.warmupPermits.release()
+            }
         }
     }
 
     private fun commitWarmupSandbox(
         run: RunContext,
+        leaderEpoch: Long,
         sandboxId: String,
-        trace: WarmupTrace?,
-    ) {
-        var cleanupSource: String? = null
-        val commit: () -> Unit = {
-            run.commitLock.lock()
+    ): String? {
+        run.commitLock.lock()
+        try {
+            val state = lifecycleState.get()
+            if (!isCurrentRun(run) ||
+                !run.primaryOwned.get() ||
+                run.leaderEpoch.get() != leaderEpoch ||
+                (state != LifecycleState.RUNNING && state != LifecycleState.DRAINING)
+            ) {
+                return "warmup-stale-run"
+            }
             try {
-                val state = lifecycleState.get()
-                if (!isCurrentRun(run) || (state != LifecycleState.RUNNING && state != LifecycleState.DRAINING)) {
-                    cleanupSource = "warmup-stale-run"
-                } else {
-                    try {
-                        ensurePoolNamespaceActive()
-                        if (!stateStore.renewPrimaryLock(config.poolName, config.ownerId, config.primaryLockTtl)) {
-                            run.primaryOwned.set(false)
-                            logger.warn(
-                                "Pool lost primary lock before putIdle; dropping warmup sandbox: " +
-                                    "pool_name={} sandbox_id={} run={}",
-                                config.poolName,
-                                sandboxId,
-                                run.generation,
-                            )
-                            cleanupSource = "warmup-lock-lost"
-                        } else {
-                            stateStore.putIdle(config.poolName, sandboxId)
-                            reconcileState.recordSuccess()
-                            logger.debug(
-                                "Pool warmup sandbox entered idle: pool_name={} sandbox_id={} run={}",
-                                config.poolName,
-                                sandboxId,
-                                run.generation,
-                            )
-                        }
-                    } catch (e: Exception) {
-                        if (isCurrentRun(run) && lifecycleState.get() == LifecycleState.RUNNING) {
-                            reconcileState.recordAsyncFailure(e.message)
-                        }
-                        try {
-                            stateStore.removeIdle(config.poolName, sandboxId)
-                        } catch (_: Exception) {
-                            // best-effort remove before remote cleanup
-                        }
-                        cleanupSource = "warmup-commit-failed"
-                        logger.warn(
-                            "Pool warmup commit failed; dropped sandbox: pool_name={} sandbox_id={} run={} error={}",
-                            config.poolName,
-                            sandboxId,
-                            run.generation,
-                            e.message,
-                        )
-                    }
+                ensurePoolNamespaceActive()
+                if (!stateStore.renewPrimaryLock(config.poolName, config.ownerId, config.primaryLockTtl)) {
+                    markPrimaryLost(run)
+                    logger.warn(
+                        "Pool lost primary lock before putIdle; dropping warmup sandbox: " +
+                            "pool_name={} sandbox_id={} run={}",
+                        config.poolName,
+                        sandboxId,
+                        run.generation,
+                    )
+                    return "warmup-lock-lost"
                 }
-            } finally {
-                run.commitLock.unlock()
+                stateStore.putIdle(config.poolName, sandboxId)
+                reconcileState.recordSuccess()
+                logger.debug(
+                    "Pool warmup sandbox entered idle: pool_name={} sandbox_id={} run={}",
+                    config.poolName,
+                    sandboxId,
+                    run.generation,
+                )
+                return null
+            } catch (failure: Exception) {
+                if (isCurrentRun(run) && lifecycleState.get() == LifecycleState.RUNNING) {
+                    reconcileState.recordAsyncFailure(failure.message)
+                }
+                try {
+                    stateStore.removeIdle(config.poolName, sandboxId)
+                } catch (_: Exception) {
+                    // best-effort remove before remote cleanup
+                }
+                logger.warn(
+                    "Pool warmup commit failed; dropped sandbox: pool_name={} sandbox_id={} run={} error={}",
+                    config.poolName,
+                    sandboxId,
+                    run.generation,
+                    failure.message,
+                )
+                return "warmup-commit-failed"
             }
-        }
-        if (trace == null) {
-            commit()
-        } else {
-            // Runs on the scheduler thread; re-attach the warmup trace's
-            // context (and MDC trace_id/span_id) so the commit span and its
-            // log lines belong to the same trace as the create phases.
-            trace.withCurrent {
-                poolTracer.withPhaseSpan(PoolTracer.WARMUP_COMMIT_SPAN) { commit() }
-            }
-            if (cleanupSource != null) {
-                // The sandbox never entered the idle pool (stale run, lock
-                // lost, or commit failure); do not report a success.
-                trace.endDropped(cleanupSource)
-            } else {
-                trace.endSuccess(sandboxId, creationSpec.imageSpec.image)
-            }
-        }
-        cleanupSource?.let { source ->
-            scheduleKillDiscardedAlive(
-                config.poolName,
-                listOf(sandboxId),
-                source = source,
-                executor = run.warmupExecutor,
-                run = run,
-            )
+        } finally {
+            run.commitLock.unlock()
         }
     }
 
-    /**
-     * Creates one sandbox, waits for readiness, then returns its id. Caller must put the
-     * id into the store; the created [Sandbox] is closed immediately so only the id is
-     * kept in the pool.
-     */
-    private fun createOneSandbox(): String {
-        return try {
-            // Phase spans auto-parent to the warmup root via the trace context
-            // made current by the warmup task; they no-op when tracing is off.
-            val sandbox = poolTracer.withPhaseSpan(PoolTracer.WARMUP_CREATE_SPAN) { buildWarmupSandbox() }
-            var failure: Throwable? = null
-            try {
-                poolTracer.withPhaseSpan(PoolTracer.WARMUP_PREPARE_SPAN) {
-                    config.warmupSandboxPreparer?.prepare(sandbox)
-                }
-                // The server-side TTL has been ticking since sandbox creation; readiness
-                // wait and `warmupSandboxPreparer` can both consume meaningful time (think
-                // initialization scripts). Renew right before handing the id back to the
-                // reconciler so the store's stamped expiry (now + idleTimeout) actually matches
-                // what the server will honor — otherwise `acquireMinRemainingTtl` overestimates
-                // remaining TTL by the warmup duration.
-                poolTracer.withPhaseSpan(PoolTracer.WARMUP_RENEW_SPAN) {
-                    sandbox.renew(config.idleTimeout)
-                }
-                sandbox.id
-            } catch (t: Throwable) {
-                failure = t
-                killWarmupSandboxAfterFailure(sandbox, t)
-                throw t
-            } finally {
-                try {
-                    sandbox.close()
-                } catch (closeFailure: Throwable) {
-                    if (failure != null) {
-                        if (closeFailure !== failure) {
-                            failure.addSuppressed(closeFailure)
-                        }
-                    } else {
-                        killWarmupSandboxAfterFailure(sandbox, closeFailure)
-                        throw closeFailure
-                    }
-                }
-            }
-        } catch (failure: Throwable) {
-            logger.warn("Pool create sandbox failed: poolName={}", config.poolName, failure)
-            throw failure
+    private fun saturatedAdd(
+        base: Long,
+        delta: Long,
+    ): Long =
+        if (delta > 0 && base > Long.MAX_VALUE - delta) {
+            Long.MAX_VALUE
+        } else {
+            base + delta
         }
+
+    private enum class WarmupStage {
+        CREATING,
+        CHECKING_READINESS,
+        PREPARING,
+        CHECKING_POST_PREPARE,
+        RENEWING,
+        COMMITTING,
+    }
+
+    private enum class HealthStage {
+        READINESS,
+        POST_PREPARE,
     }
 
     private fun killWarmupSandboxAfterFailure(
@@ -1331,7 +1529,7 @@ class SandboxPool internal constructor(
                 reason = PooledSandboxCreateContext.Reason.WARMUP,
                 readyTimeout = config.warmupReadyTimeout,
                 healthCheckPollingInterval = config.warmupHealthCheckPollingInterval,
-                skipHealthCheck = config.warmupSkipHealthCheck,
+                skipHealthCheck = true,
                 customHealthCheck = config.warmupHealthCheck,
             )
         }
@@ -1342,8 +1540,9 @@ class SandboxPool internal constructor(
                     .timeout(config.idleTimeout)
                     .readyTimeout(config.warmupReadyTimeout)
                     .healthCheckPollingInterval(config.warmupHealthCheckPollingInterval)
-                    .skipHealthCheck(config.warmupSkipHealthCheck)
-                    .connectionConfig(poolConnectionConfig),
+                    .skipHealthCheck(true)
+                    .connectionConfig(poolConnectionConfig)
+                    .initializationConnectionConfig(poolConnectionConfig.copyForSingleAttempt()),
             )
         config.warmupHealthCheck?.let { builder.healthCheck(it) }
         return builder.build()
@@ -1512,21 +1711,14 @@ class SandboxPool internal constructor(
                 skipHealthCheck = skipHealthCheck,
                 healthCheck = customHealthCheck,
                 connectionConfig = poolConnectionConfig,
+                createConnectionConfig =
+                    if (reason == PooledSandboxCreateContext.Reason.WARMUP) {
+                        poolConnectionConfig.copyForSingleAttempt()
+                    } else {
+                        poolConnectionConfig
+                    },
             )
         return creator.create(context)
-    }
-
-    private fun killSandboxBestEffort(sandboxId: String) {
-        try {
-            sandboxManager?.killSandbox(sandboxId)
-        } catch (e: Exception) {
-            logger.warn(
-                "Pool orphaned sandbox cleanup failed (best-effort): pool_name={} sandbox_id={} error={}",
-                config.poolName,
-                sandboxId,
-                e.message,
-            )
-        }
     }
 
     private fun beginOperation(run: RunContext) {
@@ -1594,11 +1786,14 @@ class SandboxPool internal constructor(
         reconcileTask = null
         primaryHeartbeatTask?.cancel(true)
         primaryHeartbeatTask = null
+        warmupDispatcher?.let { forceShutdownExecutor(it, "warmup-dispatcher") }
+        warmupDispatcher = null
+        createExecutor?.let { shutdownExecutor(it, "create") }
+        createExecutor = null
         warmupExecutor?.let { shutdownExecutor(it, "warmup") }
         warmupExecutor = null
         scheduler?.let { shutdownExecutor(it, "scheduler") }
         scheduler = null
-        completePendingWarmupCompletions(run)
         releasePrimaryLockBestEffort(run)
     }
 
@@ -1610,28 +1805,32 @@ class SandboxPool internal constructor(
     private fun completeGracefulReconcileStop() {
         val run = currentRun
         retireRun(run)
+        warmupDispatcher?.let { forceShutdownExecutor(it, "warmup-dispatcher") }
+        warmupDispatcher = null
+        createExecutor?.let { shutdownExecutor(it, "create") }
+        createExecutor = null
         warmupExecutor?.let { shutdownExecutor(it, "warmup") }
         warmupExecutor = null
         primaryHeartbeatTask?.cancel(false)
         primaryHeartbeatTask = null
         scheduler?.let { shutdownExecutor(it, "scheduler") }
         scheduler = null
-        completePendingWarmupCompletions(run)
         releasePrimaryLockBestEffort(run)
     }
 
     private fun forceStopReconcileAfterGracefulDrain() {
         val run = currentRun
         retireRun(run)
-        // Stop warmup workers first while the controller remains alive so interrupted workers can
-        // still deliver completion cleanup and release their tracked operation slots.
+        warmupDispatcher?.let { forceShutdownExecutor(it, "warmup-dispatcher") }
+        warmupDispatcher = null
+        createExecutor?.let { forceShutdownExecutor(it, "create") }
+        createExecutor = null
         warmupExecutor?.let { forceShutdownExecutor(it, "warmup") }
         warmupExecutor = null
         primaryHeartbeatTask?.cancel(true)
         primaryHeartbeatTask = null
         scheduler?.let { shutdownExecutor(it, "scheduler") }
         scheduler = null
-        completePendingWarmupCompletions(run)
         releasePrimaryLockBestEffort(run)
     }
 
@@ -1644,11 +1843,14 @@ class SandboxPool internal constructor(
         reconcileTask = null
         primaryHeartbeatTask?.cancel(false)
         primaryHeartbeatTask = null
+        warmupDispatcher?.shutdownNow()
+        warmupDispatcher = null
+        createExecutor?.let { completeDroppedTasks(it.shutdownNow()) }
+        createExecutor = null
         warmupExecutor?.let { completeDroppedTasks(it.shutdownNow()) }
         warmupExecutor = null
         scheduler?.shutdown()
         scheduler = null
-        completePendingWarmupCompletions(run)
         releasePrimaryLockBestEffort(run)
         closeProvider()
     }
@@ -1753,6 +1955,7 @@ class SandboxPool internal constructor(
         } finally {
             run.commitLock.unlock()
         }
+        cancelDelayedWarmups(run, "warmup-run-retired")
     }
 
     /**
@@ -1765,17 +1968,22 @@ class SandboxPool internal constructor(
     private class RunContext(
         val generation: Long,
         val scheduler: ScheduledExecutorService,
+        val createExecutor: ExecutorService,
         val warmupExecutor: ExecutorService,
+        warmupConcurrency: Int,
     ) {
         val active = AtomicBoolean(true)
         val commitLock = ReentrantLock()
         val warmingCount = AtomicInteger(0)
         val warmupSubmissionsOpen = AtomicBoolean(true)
         val primaryOwned = AtomicBoolean(false)
+        val leaderEpoch = AtomicLong(0)
+        val delayQueue = DelayQueue<TrackedWarmupTask>()
+        val warmupPermits = Semaphore(warmupConcurrency)
+        val activeWarmups = ConcurrentHashMap.newKeySet<TrackedWarmupTask>()
         val inFlightOperations = AtomicInteger(0)
         val inFlightLock = ReentrantLock()
         val inFlightZero: Condition = inFlightLock.newCondition()
-        val pendingWarmupCompletions = ConcurrentHashMap.newKeySet<TrackedWarmupCompletionTask>()
     }
 
     @Suppress("ktlint:standard:property-naming")
@@ -1799,6 +2007,9 @@ class SandboxPool internal constructor(
 
     companion object {
         private const val RECONCILE_INTERVAL_MS = 1_000L
+        private const val CREATE_EXECUTOR_HEADROOM = 1.2
+        private const val EXECUTOR_KEEP_ALIVE_SECONDS = 30L
+        private val DISPATCH_REJECTION_RETRY_NANOS = TimeUnit.MILLISECONDS.toNanos(10)
 
         /** Keep-alive of the pool-created shared connection pool. */
         private const val DEFAULT_SHARED_POOL_KEEPALIVE_MINUTES = 5L

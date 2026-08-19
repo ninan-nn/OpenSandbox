@@ -41,6 +41,7 @@ internal object PoolReconciler {
         config: PoolConfig,
         stateStore: PoolStateStore,
         onDiscardSandbox: (String) -> Unit = {},
+        onPrimaryAcquired: () -> Unit = {},
         warmingCount: Int,
         submitWarmups: (Int) -> Unit,
     ): Boolean {
@@ -52,6 +53,7 @@ internal object PoolReconciler {
             logger.trace("Reconcile skip (not primary): pool_name={}", poolName)
             return false
         }
+        onPrimaryAcquired()
         runPrimaryReplenishOnce(
             config = config,
             stateStore = stateStore,
