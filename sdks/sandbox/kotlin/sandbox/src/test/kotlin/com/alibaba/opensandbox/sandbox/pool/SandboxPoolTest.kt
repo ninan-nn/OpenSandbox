@@ -47,6 +47,7 @@ import io.mockk.mockk
 import io.mockk.runs
 import io.mockk.verify
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -180,7 +181,7 @@ class SandboxPoolTest {
                             active.decrementAndGet()
                         }
                     },
-                ).reconcileInterval(Duration.ofSeconds(30))
+                )
                 .drainTimeout(Duration.ofSeconds(2))
                 .build()
 
@@ -211,7 +212,8 @@ class SandboxPoolTest {
             SandboxPool.builder()
                 .poolName("failure-no-retrigger-pool")
                 .ownerId("failure-no-retrigger-owner")
-                .maxIdle(2)
+                .maxIdle(1)
+                .warmupCreateQps(1)
                 .warmupConcurrency(1)
                 .stateStore(store)
                 .connectionConfig(ConnectionConfig.builder().build())
@@ -222,7 +224,6 @@ class SandboxPoolTest {
                         throw RuntimeException("fast create failure")
                     },
                 ).warmupSkipHealthCheck()
-                .reconcileInterval(Duration.ofSeconds(30))
                 .drainTimeout(Duration.ofMillis(200))
                 .build()
 
@@ -230,7 +231,7 @@ class SandboxPoolTest {
         try {
             awaitCondition { pool.snapshot().failureCount >= 1 }
             // Fast-failing warmups previously queued a new reconcile tick on every failure,
-            // causing unbounded create/retry churn within a single reconcileInterval.
+            // causing unbounded create/retry churn between fixed reconcile ticks.
             Thread.sleep(800)
             assertEquals(1, created.get(), "failed warmup must not be retried before the periodic tick")
             assertTrue(
@@ -243,7 +244,7 @@ class SandboxPoolTest {
     }
 
     @Test
-    fun `completion-driven reconcile ticks are rate limited during fast completions`() {
+    fun `fast completions do not schedule reconcile outside the fixed clock`() {
         val store = CountingPoolStateStore()
         val created = AtomicInteger(0)
         val pool =
@@ -265,20 +266,17 @@ class SandboxPoolTest {
                         }
                     },
                 ).warmupSkipHealthCheck()
-                .reconcileInterval(Duration.ofSeconds(30))
                 .drainTimeout(Duration.ofMillis(200))
                 .build()
 
         pool.start()
         try {
-            // A mixed burst of fast success/failure completions keeps the pool in deficit and
-            // previously drove one reconcile tick per completion round (~tens per second),
-            // amplified by several state-store round-trips per tick. The minimum-interval
-            // coalescing window must cap the tick rate regardless of outcome mix.
+            // Fast success/failure completions must not add reconcile executions between the
+            // immediate startup tick and the fixed one-second tick.
             Thread.sleep(1100)
             assertTrue(
-                store.reconcileTicks.get() <= 5,
-                "completion-driven ticks must be rate limited, got=${store.reconcileTicks.get()}",
+                store.reconcileTicks.get() <= 3,
+                "only fixed ticks are expected, got=${store.reconcileTicks.get()}",
             )
             assertTrue(created.get() >= 3, "burst must still make progress, created=${created.get()}")
         } finally {
@@ -301,7 +299,6 @@ class SandboxPoolTest {
                 .maxIdle(1)
                 .warmupConcurrency(1)
                 .primaryLockTtl(Duration.ofMillis(300))
-                .reconcileInterval(Duration.ofSeconds(30))
                 .stateStore(store)
                 .connectionConfig(ConnectionConfig.builder().build())
                 .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
@@ -349,7 +346,6 @@ class SandboxPoolTest {
                         .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
                         .sandboxCreator(PooledSandboxCreator { sandbox })
                         .warmupSkipHealthCheck()
-                        .reconcileInterval(Duration.ofSeconds(30))
                         .build(),
                 sandboxManagerFactory = { manager },
             )
@@ -365,7 +361,7 @@ class SandboxPoolTest {
     }
 
     @Test
-    fun `warmup put failure records backoff and cleans remote sandbox`() {
+    fun `warmup put failure degrades without backoff and cleans remote sandbox`() {
         val store = PutIdleFailureStore()
         val manager = mockk<SandboxManager>(relaxed = true)
         val sandbox = mockk<Sandbox>(relaxed = true)
@@ -388,7 +384,6 @@ class SandboxPoolTest {
                         .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
                         .sandboxCreator(PooledSandboxCreator { sandbox })
                         .warmupSkipHealthCheck()
-                        .reconcileInterval(Duration.ofSeconds(30))
                         .build(),
                 sandboxManagerFactory = { manager },
             )
@@ -396,7 +391,8 @@ class SandboxPoolTest {
         pool.start()
         try {
             assertTrue(killed.await(5, TimeUnit.SECONDS))
-            awaitCondition { pool.snapshot().backoffActive }
+            awaitCondition { pool.snapshot().state == PoolState.DEGRADED }
+            assertFalse(pool.snapshot().backoffActive)
             assertEquals(PoolState.DEGRADED, pool.snapshot().state)
             assertEquals(0, store.snapshotCounters("put-failed-pool").idleCount)
             verify(exactly = 1) { manager.killSandbox("put-failed-warmup") }
@@ -436,7 +432,6 @@ class SandboxPoolTest {
                         }
                     },
                 ).drainTimeout(Duration.ofSeconds(2))
-                .reconcileInterval(Duration.ofSeconds(30))
                 .build()
 
         var releaser: Thread? = null
@@ -505,7 +500,6 @@ class SandboxPoolTest {
                         }
                     },
                 ).drainTimeout(Duration.ofMillis(200))
-                .reconcileInterval(Duration.ofSeconds(30))
                 .build()
 
         pool.start()
@@ -569,7 +563,6 @@ class SandboxPoolTest {
                                 }
                             },
                         ).drainTimeout(Duration.ofMillis(50))
-                        .reconcileInterval(Duration.ofSeconds(30))
                         .build(),
                 sandboxManagerFactory = { manager },
             )
@@ -632,7 +625,6 @@ class SandboxPoolTest {
                                 awaitIgnoringInterrupt(releaseWarmup)
                             },
                         ).drainTimeout(Duration.ofMillis(50))
-                        .reconcileInterval(Duration.ofSeconds(30))
                         .build(),
                 sandboxManagerFactory = {
                     if (managerCount.getAndIncrement() == 0) runningManager else cleanupManager
@@ -694,7 +686,6 @@ class SandboxPoolTest {
                     },
                 ).degradedThreshold(1)
                 .drainTimeout(Duration.ofMillis(50))
-                .reconcileInterval(Duration.ofSeconds(30))
                 .build()
 
         pool.start()
@@ -760,7 +751,6 @@ class SandboxPoolTest {
                                 releaseWarmup.await()
                             },
                         ).drainTimeout(Duration.ofMillis(50))
-                        .reconcileInterval(Duration.ofSeconds(30))
                         .build(),
                 sandboxManagerFactory = { manager },
             )
@@ -1003,7 +993,6 @@ class SandboxPoolTest {
                 .connectionConfig(ConnectionConfig.builder().build())
                 .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
                 .drainTimeout(Duration.ofMillis(50))
-                .reconcileInterval(Duration.ofSeconds(30))
                 .build()
         store.putIdle("test-pool", "non-existent-id")
 
@@ -1042,7 +1031,6 @@ class SandboxPoolTest {
                         }
                     },
                 ).warmupSkipHealthCheck()
-                .reconcileInterval(Duration.ofSeconds(30))
                 .drainTimeout(Duration.ofSeconds(2))
                 .build()
         val pool =
@@ -1103,7 +1091,6 @@ class SandboxPoolTest {
                 .connectionConfig(ConnectionConfig.builder().build())
                 .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
                 .drainTimeout(Duration.ofMillis(50))
-                .reconcileInterval(Duration.ofSeconds(30))
                 .maxAcquireRetries(3)
                 .build()
         val pool =
@@ -1146,7 +1133,6 @@ class SandboxPoolTest {
                 .connectionConfig(ConnectionConfig.builder().build())
                 .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
                 .drainTimeout(Duration.ofMillis(50))
-                .reconcileInterval(Duration.ofSeconds(30))
                 .maxAcquireRetries(5)
                 .build()
         // Only 2 stale IDs but budget is 5; loop should exit early after the store empties out
@@ -1185,7 +1171,6 @@ class SandboxPoolTest {
                 .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
                 .sandboxCreator(creator)
                 .drainTimeout(Duration.ofMillis(50))
-                .reconcileInterval(Duration.ofSeconds(30))
                 .maxAcquireRetries(3)
                 .build()
         repeat(3) { store.putIdle("test-pool", "stale-id-$it") }
@@ -1238,7 +1223,6 @@ class SandboxPoolTest {
                         directSandbox
                     },
                 ).drainTimeout(Duration.ofMillis(50))
-                .reconcileInterval(Duration.ofSeconds(30))
                 .build()
         val pool =
             SandboxPool(
@@ -1292,7 +1276,6 @@ class SandboxPoolTest {
                 .connectionConfig(ConnectionConfig.builder().build())
                 .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
                 .drainTimeout(Duration.ofMillis(50))
-                .reconcileInterval(Duration.ofSeconds(30))
                 .build()
         val pool =
             SandboxPool(
@@ -1371,7 +1354,6 @@ class SandboxPoolTest {
                 .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
                 .maxAcquireRetries(2)
                 .drainTimeout(Duration.ofMillis(50))
-                .reconcileInterval(Duration.ofSeconds(30))
                 .build()
         val pool =
             SandboxPool(
@@ -1431,7 +1413,6 @@ class SandboxPoolTest {
                 .connectionConfig(ConnectionConfig.builder().build())
                 .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
                 .drainTimeout(Duration.ofMillis(50))
-                .reconcileInterval(Duration.ofSeconds(30))
                 .build()
         val pool =
             SandboxPool(
@@ -1487,7 +1468,6 @@ class SandboxPoolTest {
                         }
                     },
                 ).drainTimeout(Duration.ofSeconds(2))
-                .reconcileInterval(Duration.ofSeconds(30))
                 .build()
         val pool = SandboxPool(config = config, sandboxManagerFactory = { manager })
 
@@ -1526,7 +1506,6 @@ class SandboxPoolTest {
                 .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
                 .sandboxCreator(creator)
                 .drainTimeout(Duration.ofMillis(50))
-                .reconcileInterval(Duration.ofSeconds(30))
                 .build()
 
         pool.start()
@@ -1559,7 +1538,6 @@ class SandboxPoolTest {
                 .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
                 .sandboxCreator(creator)
                 .drainTimeout(Duration.ofMillis(50))
-                .reconcileInterval(Duration.ofSeconds(30))
                 .build()
 
         pool.start()
@@ -1585,7 +1563,6 @@ class SandboxPoolTest {
                 .connectionConfig(ConnectionConfig.builder().build())
                 .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
                 .drainTimeout(Duration.ofMillis(50))
-                .reconcileInterval(Duration.ofSeconds(30))
                 .build()
 
         pool.start()
@@ -1624,7 +1601,6 @@ class SandboxPoolTest {
                 .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
                 .sandboxCreator(creator)
                 .drainTimeout(Duration.ofMillis(50))
-                .reconcileInterval(Duration.ofSeconds(30))
                 .build()
 
         pool.start()
@@ -1652,7 +1628,6 @@ class SandboxPoolTest {
                 .connectionConfig(ConnectionConfig.builder().build())
                 .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
                 .drainTimeout(Duration.ofMillis(50))
-                .reconcileInterval(Duration.ofSeconds(30))
                 .build()
 
         pool.start()
@@ -1706,7 +1681,6 @@ class SandboxPoolTest {
                 .connectionConfig(ConnectionConfig.builder().build())
                 .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
                 .drainTimeout(Duration.ofMillis(50))
-                .reconcileInterval(Duration.ofSeconds(30))
                 .build()
         store.putIdle("test-pool", "id-1")
         store.putIdle("test-pool", "id-2")
@@ -1735,7 +1709,6 @@ class SandboxPoolTest {
                         .connectionConfig(ConnectionConfig.builder().build())
                         .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
                         .drainTimeout(Duration.ofMillis(50))
-                        .reconcileInterval(Duration.ofSeconds(30))
                         .build(),
                 sandboxManagerFactory = { temporaryManager },
             )
@@ -1865,7 +1838,6 @@ class SandboxPoolTest {
                         .connectionConfig(ConnectionConfig.builder().build())
                         .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
                         .drainTimeout(Duration.ofMillis(50))
-                        .reconcileInterval(Duration.ofSeconds(30))
                         .build(),
                 sandboxManagerFactory = { throw RuntimeException("manager init failed") },
             )
@@ -2129,7 +2101,6 @@ class SandboxPoolTest {
                 .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
                 .idleTimeout(Duration.ofMinutes(10))
                 .drainTimeout(Duration.ofMillis(50))
-                .reconcileInterval(Duration.ofSeconds(30))
                 .build()
 
         pool.start()
@@ -2174,7 +2145,6 @@ class SandboxPoolTest {
                 .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
                 .sandboxCreator(PooledSandboxCreator { sandbox })
                 .drainTimeout(Duration.ofMillis(50))
-                .reconcileInterval(Duration.ofSeconds(30))
                 .build()
         pool.start()
 
@@ -2204,7 +2174,6 @@ class SandboxPoolTest {
             .connectionConfig(config)
             .creationSpec(spec)
             .drainTimeout(Duration.ofMillis(50))
-            .reconcileInterval(Duration.ofSeconds(30))
             .build()
     }
 
@@ -2220,6 +2189,7 @@ class SandboxPoolTest {
                     .poolName("test-pool")
                     .ownerId("test-owner")
                     .maxIdle(0)
+                    .warmupConcurrency(1)
                     .stateStore(store)
                     .connectionConfig(ConnectionConfig.builder().build())
                     .creationSpec(PoolCreationSpec.builder().image("ubuntu:22.04").build())
@@ -2227,7 +2197,6 @@ class SandboxPoolTest {
                     .acquireMinRemainingTtl(Duration.ofMinutes(1))
                     .idleTimeout(Duration.ofMinutes(10))
                     .drainTimeout(drainTimeout)
-                    .reconcileInterval(Duration.ofSeconds(30))
                     .build(),
             sandboxManagerFactory = { manager },
         )

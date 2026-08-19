@@ -232,6 +232,7 @@ SandboxPool pool = SandboxPool.builder()
     .poolName("demo-pool")
     .ownerId("worker-1")
     .maxIdle(3)
+    .warmupCreateQps(10)
     .warmupReadyTimeout(Duration.ofSeconds(45))
     .stateStore(new InMemoryPoolStateStore()) // single-node store
     .connectionConfig(config)
@@ -281,12 +282,10 @@ Pool lifecycle semantics:
 - `ownerId` is the lock owner identity (node/process id), not the pool identifier.
   If omitted, SDK auto-generates a UUID-based default.
 - Use `warmupSandboxPreparer(...)` if you need to prepare a sandbox after warmup readiness succeeds and before it is put into the idle pool.
-- `warmupConcurrency` is the maximum number of in-flight warmups. Replenish uses a
-  rolling window: when one warmup finishes, its slot is refilled immediately if
-  `idle + warming` is still below `maxIdle`; it does not wait for other slower warmups.
-- `reconcileInterval` is the periodic safety-net interval for state convergence,
-  expiration cleanup, and leader acquisition. Normal rolling replenish after a warmup
-  completion does not wait for the next interval.
+- `warmupCreateQps` caps new warmup creates admitted by each pool during its fixed
+  one-second reconcile tick. `warmupConcurrency` independently bounds active
+  post-create warmup work such as health checks and preparation.
+- Reconcile runs once per second. Warmup completion does not trigger an extra tick.
 - Graceful shutdown stops admitting new warmups, keeps the primary heartbeat and
   completion controller alive while already-admitted warmups finish, and preserves
   the existing behavior of allowing those warmups to enter idle before shutdown completes.

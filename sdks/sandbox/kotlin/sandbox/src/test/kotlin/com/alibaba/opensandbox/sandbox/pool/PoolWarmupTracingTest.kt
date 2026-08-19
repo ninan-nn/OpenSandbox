@@ -106,7 +106,7 @@ class PoolWarmupTracingTest {
                         capturedTraceId.set(MDC.get(PoolTracer.MDC_TRACE_ID))
                         capturedSpanId.set(MDC.get(PoolTracer.MDC_SPAN_ID))
                     },
-                ).reconcileInterval(Duration.ofSeconds(30))
+                )
                 .drainTimeout(Duration.ofSeconds(2))
                 .build()
 
@@ -184,7 +184,6 @@ class PoolWarmupTracingTest {
                         throw RuntimeException("create boom")
                     },
                 ).warmupSkipHealthCheck()
-                .reconcileInterval(Duration.ofSeconds(30))
                 .drainTimeout(Duration.ofMillis(200))
                 .build()
 
@@ -229,7 +228,7 @@ class PoolWarmupTracingTest {
                     SandboxPreparer {
                         store.failRenewPrimaryLock = true
                     },
-                ).reconcileInterval(Duration.ofSeconds(30))
+                )
                 .drainTimeout(Duration.ofSeconds(2))
                 .build()
 
@@ -273,7 +272,6 @@ class PoolWarmupTracingTest {
                         }
                     },
                 ).warmupSkipHealthCheck()
-                .reconcileInterval(Duration.ofSeconds(30))
                 .drainTimeout(Duration.ofSeconds(2))
                 .build()
 

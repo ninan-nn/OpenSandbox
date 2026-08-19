@@ -24,7 +24,6 @@ import com.alibaba.opensandbox.sandbox.domain.exceptions.PoolDestroyedException
 import com.alibaba.opensandbox.sandbox.domain.exceptions.PoolEmptyException
 import com.alibaba.opensandbox.sandbox.domain.exceptions.PoolNotRunningException
 import com.alibaba.opensandbox.sandbox.domain.exceptions.PoolStateStoreUnavailableException
-import com.alibaba.opensandbox.sandbox.domain.exceptions.SandboxRateLimitException
 import com.alibaba.opensandbox.sandbox.domain.pool.AcquirePolicy
 import com.alibaba.opensandbox.sandbox.domain.pool.IdleEntry
 import com.alibaba.opensandbox.sandbox.domain.pool.PoolConfig
@@ -37,7 +36,6 @@ import com.alibaba.opensandbox.sandbox.domain.pool.PoolStateStore
 import com.alibaba.opensandbox.sandbox.domain.pool.PooledSandboxCreateContext
 import com.alibaba.opensandbox.sandbox.domain.pool.PooledSandboxCreator
 import com.alibaba.opensandbox.sandbox.domain.pool.SandboxPreparer
-import com.alibaba.opensandbox.sandbox.infrastructure.pool.PoolRateLimitState
 import com.alibaba.opensandbox.sandbox.infrastructure.pool.PoolReconciler
 import com.alibaba.opensandbox.sandbox.infrastructure.pool.ReconcileState
 import com.alibaba.opensandbox.sandbox.internal.PoolTracer
@@ -123,7 +121,7 @@ class SandboxPool internal constructor(
     /**
      * A pool-wide shared OkHttp connection pool, created by the pool when the
      * user's [ConnectionConfig] does not carry one. Sized from
-     * [PoolConfig.warmupConcurrency] so concurrent warmup creates reuse
+     * [PoolConfig.warmupConcurrency] so concurrent post-create warmups reuse
      * connections instead of each opening fresh TCP connections — at high
      * concurrency the per-sandbox connection churn otherwise causes
      * connection resets and retry amplification. Pool-managed: evicted when
@@ -191,8 +189,8 @@ class SandboxPool internal constructor(
             stateStore.setIdleEntryTtl(config.poolName, config.idleTimeout)
             stateStore.setMaxIdle(config.poolName, config.maxIdle)
             val warmupExec =
-                Executors.newFixedThreadPool(config.warmupConcurrency.coerceAtLeast(1)) { r ->
-                    Thread(r, "sandbox-pool-warmup-${config.poolName}").apply { isDaemon = true }
+                Executors.newFixedThreadPool(config.warmupConcurrency.coerceAtLeast(1)) { runnable ->
+                    Thread(runnable, "sandbox-pool-warmup-${config.poolName}").apply { isDaemon = true }
                 }
             warmupExecutor = warmupExec
             val exec =
@@ -202,10 +200,9 @@ class SandboxPool internal constructor(
             scheduler = exec
             val run = RunContext(runSequence.incrementAndGet(), exec, warmupExec)
             currentRun = run
-            val reconcileIntervalMs = config.reconcileInterval.toMillis()
             val primaryHeartbeatIntervalMs =
                 minOf(
-                    reconcileIntervalMs,
+                    RECONCILE_INTERVAL_MS,
                     config.primaryLockTtl.dividedBy(3L).toMillis(),
                 ).coerceAtLeast(1L)
             // The first reconcile may run immediately. Publish RUNNING only after all of its
@@ -235,8 +232,8 @@ class SandboxPool internal constructor(
                             logger.error("Pool reconcile tick failed unexpectedly: pool_name={}", config.poolName, t)
                         }
                     },
-                    if (config.maxIdle > 0) 0 else reconcileIntervalMs,
-                    reconcileIntervalMs,
+                    if (config.maxIdle > 0) 0 else RECONCILE_INTERVAL_MS,
+                    RECONCILE_INTERVAL_MS,
                     TimeUnit.MILLISECONDS,
                 )
             logger.info(
@@ -645,7 +642,7 @@ class SandboxPool internal constructor(
             idleCount = counters.idleCount,
             maxIdle = resolveMaxIdle(),
             failureCount = reconcileState.failureCount,
-            backoffActive = reconcileState.isBackoffActive() || currentRun?.rateLimitState?.isActive() == true,
+            backoffActive = false,
             lastError = reconcileState.lastError,
             inFlightOperations = currentRun?.inFlightOperations?.get() ?: 0,
         )
@@ -858,10 +855,7 @@ class SandboxPool internal constructor(
 
         private fun complete() {
             if (completed.compareAndSet(false, true)) {
-                run?.let {
-                    endOperation(it)
-                    requestReconcile(it)
-                }
+                run?.let { endOperation(it) }
             }
         }
     }
@@ -962,9 +956,7 @@ class SandboxPool internal constructor(
                         config = reconcileConfig,
                         stateStore = stateStore,
                         onDiscardSandbox = { sandboxId -> killSandboxBestEffort(sandboxId) },
-                        reconcileState = reconcileState,
                         warmingCount = run.warmingCount.get(),
-                        rateLimitState = run.rateLimitState,
                         submitWarmups = { count -> submitWarmups(run, count) },
                     ),
                 )
@@ -995,105 +987,6 @@ class SandboxPool internal constructor(
                 config.poolName,
                 config.ownerId,
             )
-        }
-    }
-
-    private fun requestReconcile(run: RunContext) {
-        if (!isCurrentRun(run) ||
-            lifecycleState.get() != LifecycleState.RUNNING ||
-            !run.warmupSubmissionsOpen.get()
-        ) {
-            return
-        }
-        val exec = run.scheduler
-        if (!run.reconcileQueued.compareAndSet(false, true)) return
-        // Completion-driven ticks are a latency optimization, not the correctness loop (the
-        // periodic tick is). Coalesce them into a minimum interval so bursts of fast
-        // completions cannot drive reconcile ticks — each of which costs several state-store
-        // round-trips — at unbounded frequency. The floor advances from the later of the last
-        // request and the previous floor so it applies between tick executions, not merely
-        // between requests: a completion that lands right after a scheduled tick must still
-        // wait out the full window.
-        val nowNanos = System.nanoTime()
-        val nextAllowedNanos = run.nextCompletionReconcileAtNanos
-        run.nextCompletionReconcileAtNanos =
-            maxOf(nextAllowedNanos, nowNanos) + TimeUnit.MILLISECONDS.toNanos(COMPLETION_RECONCILE_MIN_INTERVAL_MS)
-        val delayMs = TimeUnit.NANOSECONDS.toMillis(nextAllowedNanos - nowNanos).coerceAtLeast(0L)
-        val tick =
-            Runnable {
-                run.reconcileQueued.set(false)
-                try {
-                    runReconcileTick(run)
-                } catch (t: Throwable) {
-                    logger.error("Pool completion-driven reconcile failed: pool_name={}", config.poolName, t)
-                }
-            }
-        try {
-            if (delayMs == 0L) {
-                exec.execute(tick)
-            } else {
-                exec.schedule(tick, delayMs, TimeUnit.MILLISECONDS)
-            }
-        } catch (e: Exception) {
-            run.reconcileQueued.set(false)
-            if (lifecycleState.get() == LifecycleState.RUNNING) {
-                logger.debug(
-                    "Pool completion-driven reconcile submit rejected: pool_name={} error={}",
-                    config.poolName,
-                    e.message,
-                )
-            }
-        }
-    }
-
-    private fun scheduleRateLimitReconcile(run: RunContext) {
-        if (!isCurrentRun(run) || lifecycleState.get() != LifecycleState.RUNNING) return
-        synchronized(run.rateLimitScheduleLock) {
-            if (!isCurrentRun(run) || lifecycleState.get() != LifecycleState.RUNNING) return
-            run.rateLimitReconcileTask?.cancel(false)
-            val sequence = ++run.rateLimitReconcileSequence
-            val delayNanos = run.rateLimitState.remainingDelay().toNanos()
-            try {
-                run.rateLimitReconcileTask =
-                    run.scheduler.schedule(
-                        { onRateLimitReconcileDue(run, sequence) },
-                        delayNanos,
-                        TimeUnit.NANOSECONDS,
-                    )
-            } catch (e: Exception) {
-                run.rateLimitReconcileTask = null
-                if (lifecycleState.get() == LifecycleState.RUNNING) {
-                    logger.debug(
-                        "Pool rate-limit reconcile submit rejected: pool_name={} error={}",
-                        config.poolName,
-                        e.message,
-                    )
-                }
-            }
-        }
-    }
-
-    private fun onRateLimitReconcileDue(
-        run: RunContext,
-        sequence: Long,
-    ) {
-        synchronized(run.rateLimitScheduleLock) {
-            if (sequence != run.rateLimitReconcileSequence) return
-            run.rateLimitReconcileTask = null
-        }
-        if (!isCurrentRun(run) || lifecycleState.get() != LifecycleState.RUNNING) return
-        if (run.rateLimitState.isActive()) {
-            scheduleRateLimitReconcile(run)
-        } else {
-            requestReconcile(run)
-        }
-    }
-
-    private fun cancelRateLimitReconcile(run: RunContext) {
-        synchronized(run.rateLimitScheduleLock) {
-            run.rateLimitReconcileSequence++
-            run.rateLimitReconcileTask?.cancel(false)
-            run.rateLimitReconcileTask = null
         }
     }
 
@@ -1204,14 +1097,6 @@ class SandboxPool internal constructor(
             } finally {
                 run.warmingCount.decrementAndGet()
                 endOperation(run)
-                // Only successful completions trigger an immediate reconcile. A failed warmup
-                // frees its slot but must not cause an immediate retry: fast-failing creates
-                // would otherwise form a self-sustaining reconcile/create loop that amplifies
-                // state-store load far beyond the periodic tick. Retries are driven by the
-                // periodic tick, which the backoff window already paces.
-                if (outcome is WarmupOutcome.Success) {
-                    requestReconcile(run)
-                }
             }
         }
     }
@@ -1268,19 +1153,7 @@ class SandboxPool internal constructor(
             is WarmupOutcome.Success -> commitWarmupSandbox(run, outcome.sandboxId, trace)
             is WarmupOutcome.Failure -> {
                 if (isCurrentRun(run) && lifecycleState.get() == LifecycleState.RUNNING) {
-                    val error = outcome.error
-                    if (error is SandboxRateLimitException) {
-                        run.rateLimitState.recordRateLimit(error.retryAfter)
-                        scheduleRateLimitReconcile(run)
-                        logger.debug(
-                            "Pool warmup rate limited: pool_name={} retry_after_ms={} throttle_remaining_ms={}",
-                            config.poolName,
-                            error.retryAfter?.toMillis(),
-                            run.rateLimitState.remainingDelay().toMillis(),
-                        )
-                    } else {
-                        reconcileState.recordAsyncFailure(error.message)
-                    }
+                    reconcileState.recordAsyncFailure(outcome.error.message)
                 }
             }
             WarmupOutcome.Cancelled -> Unit
@@ -1726,7 +1599,6 @@ class SandboxPool internal constructor(
         scheduler?.let { shutdownExecutor(it, "scheduler") }
         scheduler = null
         completePendingWarmupCompletions(run)
-        run?.reconcileQueued?.set(false)
         releasePrimaryLockBestEffort(run)
     }
 
@@ -1745,7 +1617,6 @@ class SandboxPool internal constructor(
         scheduler?.let { shutdownExecutor(it, "scheduler") }
         scheduler = null
         completePendingWarmupCompletions(run)
-        run?.reconcileQueued?.set(false)
         releasePrimaryLockBestEffort(run)
     }
 
@@ -1761,7 +1632,6 @@ class SandboxPool internal constructor(
         scheduler?.let { shutdownExecutor(it, "scheduler") }
         scheduler = null
         completePendingWarmupCompletions(run)
-        run?.reconcileQueued?.set(false)
         releasePrimaryLockBestEffort(run)
     }
 
@@ -1779,7 +1649,6 @@ class SandboxPool internal constructor(
         scheduler?.shutdown()
         scheduler = null
         completePendingWarmupCompletions(run)
-        run?.reconcileQueued?.set(false)
         releasePrimaryLockBestEffort(run)
         closeProvider()
     }
@@ -1884,7 +1753,6 @@ class SandboxPool internal constructor(
         } finally {
             run.commitLock.unlock()
         }
-        cancelRateLimitReconcile(run)
     }
 
     /**
@@ -1903,16 +1771,6 @@ class SandboxPool internal constructor(
         val commitLock = ReentrantLock()
         val warmingCount = AtomicInteger(0)
         val warmupSubmissionsOpen = AtomicBoolean(true)
-        val reconcileQueued = AtomicBoolean(false)
-        val rateLimitState = PoolRateLimitState()
-        val rateLimitScheduleLock = Any()
-
-        @Volatile
-        var rateLimitReconcileTask: ScheduledFuture<*>? = null
-        var rateLimitReconcileSequence: Long = 0
-
-        @Volatile
-        var nextCompletionReconcileAtNanos: Long = 0
         val primaryOwned = AtomicBoolean(false)
         val inFlightOperations = AtomicInteger(0)
         val inFlightLock = ReentrantLock()
@@ -1940,8 +1798,7 @@ class SandboxPool internal constructor(
     }
 
     companion object {
-        /** Minimum spacing between completion-driven reconcile ticks (see [requestReconcile]). */
-        private const val COMPLETION_RECONCILE_MIN_INTERVAL_MS = 500L
+        private const val RECONCILE_INTERVAL_MS = 1_000L
 
         /** Keep-alive of the pool-created shared connection pool. */
         private const val DEFAULT_SHARED_POOL_KEEPALIVE_MINUTES = 5L
@@ -1989,6 +1846,11 @@ class SandboxPool internal constructor(
             return this
         }
 
+        fun warmupCreateQps(warmupCreateQps: Int): Builder {
+            configBuilder.warmupCreateQps(warmupCreateQps)
+            return this
+        }
+
         fun stateStore(stateStore: PoolStateStore): Builder {
             configBuilder.stateStore(stateStore)
             return this
@@ -2016,11 +1878,6 @@ class SandboxPool internal constructor(
 
         fun primaryLockTtl(primaryLockTtl: Duration): Builder {
             configBuilder.primaryLockTtl(primaryLockTtl)
-            return this
-        }
-
-        fun reconcileInterval(reconcileInterval: Duration): Builder {
-            configBuilder.reconcileInterval(reconcileInterval)
             return this
         }
 
@@ -2059,6 +1916,11 @@ class SandboxPool internal constructor(
             return this
         }
 
+        fun warmupHealthCheckInitialDelay(warmupHealthCheckInitialDelay: Duration): Builder {
+            configBuilder.warmupHealthCheckInitialDelay(warmupHealthCheckInitialDelay)
+            return this
+        }
+
         fun warmupHealthCheckPollingInterval(warmupHealthCheckPollingInterval: Duration): Builder {
             configBuilder.warmupHealthCheckPollingInterval(warmupHealthCheckPollingInterval)
             return this
@@ -2071,6 +1933,16 @@ class SandboxPool internal constructor(
 
         fun warmupSandboxPreparer(warmupSandboxPreparer: SandboxPreparer): Builder {
             configBuilder.warmupSandboxPreparer(warmupSandboxPreparer)
+            return this
+        }
+
+        fun warmupPostPrepareHealthCheck(warmupPostPrepareHealthCheck: (Sandbox) -> Boolean): Builder {
+            configBuilder.warmupPostPrepareHealthCheck(warmupPostPrepareHealthCheck)
+            return this
+        }
+
+        fun warmupPostPrepareHealthCheckTimeout(warmupPostPrepareHealthCheckTimeout: Duration): Builder {
+            configBuilder.warmupPostPrepareHealthCheckTimeout(warmupPostPrepareHealthCheckTimeout)
             return this
         }
 

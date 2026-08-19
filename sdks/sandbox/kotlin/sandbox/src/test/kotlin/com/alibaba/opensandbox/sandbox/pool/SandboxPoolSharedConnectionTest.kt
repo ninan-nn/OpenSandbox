@@ -114,7 +114,6 @@ class SandboxPoolSharedConnectionTest {
                     .entrypoint("tail", "-f", "/dev/null")
                     .build(),
             )
-            .reconcileInterval(Duration.ofMillis(100))
             .idleTimeout(Duration.ofMinutes(30))
             .acquireSkipHealthCheck(false)
             .build()
