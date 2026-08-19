@@ -48,6 +48,19 @@ class HttpClientProviderTest {
 
     @Test
     fun `single attempt config disables policy retry and OkHttp recovery without changing public disabled policy`() {
+        val retrying =
+            ConnectionConfig.builder()
+                .retryPolicy(RetryPolicy(retryableStatusCodesNonIdempotent = setOf(429)))
+                .build()
+        HttpClientProvider(retrying).use { provider ->
+            assertFalse(provider.authenticatedClient.retryOnConnectionFailure)
+            assertTrue(provider.authenticatedClient.interceptors.any { it is RetryInterceptor })
+        }
+        HttpClientProvider(retrying.copyForSingleAttempt()).use { provider ->
+            assertFalse(provider.authenticatedClient.retryOnConnectionFailure)
+            assertFalse(provider.authenticatedClient.interceptors.any { it is RetryInterceptor })
+        }
+
         val publicDisabled =
             ConnectionConfig.builder()
                 .retryPolicy(RetryPolicy.disabled())
@@ -57,7 +70,6 @@ class HttpClientProviderTest {
             assertTrue(provider.authenticatedClient.retryOnConnectionFailure)
             assertFalse(provider.authenticatedClient.interceptors.any { it is RetryInterceptor })
         }
-
         HttpClientProvider(publicDisabled.copyForSingleAttempt()).use { provider ->
             assertFalse(provider.authenticatedClient.retryOnConnectionFailure)
             assertFalse(provider.authenticatedClient.interceptors.any { it is RetryInterceptor })

@@ -1125,6 +1125,7 @@ class SandboxPool internal constructor(
                     poolName = config.poolName,
                     ownerId = config.ownerId,
                     runGeneration = run.generation,
+                    leaderEpoch = leaderEpoch,
                     submittedEpochNanos = submittedEpochNanos,
                 )
             if (!canAdvance()) {
@@ -1249,20 +1250,27 @@ class SandboxPool internal constructor(
         private fun runHealthCheck(healthStage: HealthStage): Boolean {
             val current = requireSandbox()
             val isFinalAttempt = finalAttempt || System.nanoTime() >= stageDeadlineNanos
+            val spanName =
+                when (healthStage) {
+                    HealthStage.READINESS -> PoolTracer.WARMUP_READINESS_CHECK_SPAN
+                    HealthStage.POST_PREPARE -> PoolTracer.WARMUP_POST_PREPARE_CHECK_SPAN
+                }
             val healthy =
-                try {
-                    val result =
-                        when (healthStage) {
-                            HealthStage.READINESS -> config.warmupHealthCheck?.invoke(current) ?: current.ping()
-                            HealthStage.POST_PREPARE ->
-                                requireNotNull(config.warmupPostPrepareHealthCheck).invoke(current)
-                        }
-                    lastHealthCheckError = null
-                    result
-                } catch (failure: Throwable) {
-                    if (failure.isCausedByInterruption() || Thread.currentThread().isInterrupted) throw failure
-                    lastHealthCheckError = failure
-                    false
+                poolTracer.withPhaseSpan(spanName) {
+                    try {
+                        val result =
+                            when (healthStage) {
+                                HealthStage.READINESS -> config.warmupHealthCheck?.invoke(current) ?: current.ping()
+                                HealthStage.POST_PREPARE ->
+                                    requireNotNull(config.warmupPostPrepareHealthCheck).invoke(current)
+                            }
+                        lastHealthCheckError = null
+                        result
+                    } catch (failure: Throwable) {
+                        if (failure.isCausedByInterruption() || Thread.currentThread().isInterrupted) throw failure
+                        lastHealthCheckError = failure
+                        false
+                    }
                 }
             if (healthy) return true
             if (isFinalAttempt) {

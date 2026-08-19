@@ -234,6 +234,9 @@ SandboxPool pool = SandboxPool.builder()
     .maxIdle(3)
     .warmupCreateQps(10)
     .warmupReadyTimeout(Duration.ofSeconds(45))
+    .warmupHealthCheckInitialDelay(Duration.ofSeconds(2))
+    .warmupPostPrepareHealthCheck(sandbox -> sandbox.ping())
+    .warmupPostPrepareHealthCheckTimeout(Duration.ofSeconds(30))
     .stateStore(new InMemoryPoolStateStore()) // single-node store
     .connectionConfig(config)
     .creationSpec(
@@ -281,13 +284,20 @@ Pool lifecycle semantics:
   on borrowed sandboxes or sandboxes created by `AcquirePolicy.DIRECT_CREATE`.
 - `ownerId` is the lock owner identity (node/process id), not the pool identifier.
   If omitted, SDK auto-generates a UUID-based default.
-- Use `warmupSandboxPreparer(...)` if you need to prepare a sandbox after warmup readiness succeeds and before it is put into the idle pool.
+- Use `warmupSandboxPreparer(...)` if you need to prepare a sandbox after warmup readiness succeeds and before it is put into the idle pool. An optional `warmupPostPrepareHealthCheck(...)` can validate the prepared sandbox before it becomes idle; retries never rerun the preparer.
 - `warmupCreateQps` caps new warmup creates admitted by each pool during its fixed
   one-second reconcile tick. `warmupConcurrency` independently bounds active
-  post-create warmup work such as health checks and preparation.
+  post-create warmup work such as health checks and preparation. Their defaults
+  are `10` and `128`, respectively.
+- Readiness checks start after `warmupHealthCheckInitialDelay` (zero by default).
+  Readiness and post-prepare retries share `warmupHealthCheckPollingInterval`,
+  whose Pool default is `500ms`. Their timeout settings are soft deadlines: a
+  delayed task still receives one final check at or after its deadline.
+- Pool warmup create uses one transport attempt. Direct create, standalone create,
+  acquire, connect, renew, and cleanup retain the configured retry behavior.
 - Reconcile runs once per second. Warmup completion does not trigger an extra tick.
 - Graceful shutdown stops admitting new warmups, keeps the primary heartbeat and
-  completion controller alive while already-admitted warmups finish, and preserves
+  delayed-stage dispatcher alive while already-admitted warmups finish, and preserves
   the existing behavior of allowing those warmups to enter idle before shutdown completes.
 - The pool shares one OkHttp `ConnectionPool` across every sandbox it creates
   (warmup, direct create, idle connect). When the `ConnectionConfig` carries no
