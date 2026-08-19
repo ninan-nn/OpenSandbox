@@ -121,6 +121,10 @@ class HttpClientProvider(
      * false), this is a no-op — the caller relies on OkHttp defaults.
      */
     private fun OkHttpClient.Builder.addRetryInterceptor(): OkHttpClient.Builder {
+        if (!config.retryOnConnectionFailure) {
+            retryOnConnectionFailure(false)
+            return this
+        }
         if (config.retryPolicy.wrapsTransport()) {
             retryOnConnectionFailure(false)
             addInterceptor(RetryInterceptor(config.retryPolicy))

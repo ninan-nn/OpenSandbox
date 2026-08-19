@@ -78,6 +78,8 @@ class ConnectionConfig private constructor(
      * of this value because they cannot be safely replayed.
      */
     val retryPolicy: RetryPolicy = RetryPolicy(),
+    /** Internal override used by single-attempt operations to disable OkHttp connection recovery. */
+    internal val retryOnConnectionFailure: Boolean = true,
 ) {
     /**
      * Creates a copy of this ConnectionConfig without copying the connectionPool.
@@ -101,6 +103,7 @@ class ConnectionConfig private constructor(
             disableMetrics = this.disableMetrics,
             enableTracing = this.enableTracing,
             retryPolicy = this.retryPolicy,
+            retryOnConnectionFailure = this.retryOnConnectionFailure,
         )
 
     /**
@@ -128,7 +131,34 @@ class ConnectionConfig private constructor(
             endpointCacheSize = this.endpointCacheSize,
             endpointCacheDisabled = this.endpointCacheDisabled,
             disableMetrics = this.disableMetrics,
+            enableTracing = this.enableTracing,
             retryPolicy = this.retryPolicy,
+            retryOnConnectionFailure = this.retryOnConnectionFailure,
+        )
+
+    /**
+     * Creates an internal transport configuration that performs exactly one HTTP attempt.
+     * Public [RetryPolicy.disabled] semantics remain unchanged and still allow OkHttp recovery.
+     */
+    internal fun copyForSingleAttempt(): ConnectionConfig =
+        ConnectionConfig(
+            apiKey = this.apiKey,
+            domain = this.domain,
+            protocol = this.protocol,
+            requestTimeout = this.requestTimeout,
+            debug = this.debug,
+            userAgent = this.userAgent,
+            headers = this.headers,
+            connectionPool = this.connectionPool,
+            connectionPoolManagedByUser = this.connectionPoolManagedByUser,
+            useServerProxy = this.useServerProxy,
+            endpointCacheTtl = this.endpointCacheTtl,
+            endpointCacheSize = this.endpointCacheSize,
+            endpointCacheDisabled = this.endpointCacheDisabled,
+            disableMetrics = this.disableMetrics,
+            enableTracing = this.enableTracing,
+            retryPolicy = RetryPolicy.disabled(),
+            retryOnConnectionFailure = false,
         )
 
     companion object {
@@ -437,6 +467,7 @@ class ConnectionConfig private constructor(
                 disableMetrics = disableMetrics,
                 enableTracing = enableTracing,
                 retryPolicy = retryPolicy,
+                retryOnConnectionFailure = true,
             )
         }
     }
