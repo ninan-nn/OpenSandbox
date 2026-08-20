@@ -112,7 +112,8 @@ public class SandboxPoolStagedWarmupE2ETest extends BaseE2ETest {
                                         return false;
                                     }
                                     return markerContent.equals(
-                                            sandbox.files().readFile(markerPath).trim());
+                                                    sandbox.files().readFile(markerPath).trim())
+                                            && sandbox.ping();
                                 })
                         .warmupPostPrepareHealthCheckTimeout(Duration.ofSeconds(10))
                         .build();
@@ -173,7 +174,7 @@ public class SandboxPoolStagedWarmupE2ETest extends BaseE2ETest {
                                     if (sandbox.getId().equals(failedSandboxId.get())) {
                                         return false;
                                     }
-                                    return true;
+                                    return sandbox.ping();
                                 })
                         .warmupSandboxPreparer(
                                 sandbox -> {
@@ -219,7 +220,7 @@ public class SandboxPoolStagedWarmupE2ETest extends BaseE2ETest {
                 basePoolBuilder(1)
                         .warmupReadyTimeout(Duration.ofSeconds(30))
                         .warmupHealthCheckPollingInterval(Duration.ofMillis(250))
-                        .warmupHealthCheck(Sandbox::isHealthy)
+                        .warmupHealthCheck(Sandbox::ping)
                         .warmupSandboxPreparer(
                                 sandbox -> {
                                     totalPreparerCalls.incrementAndGet();
@@ -234,7 +235,7 @@ public class SandboxPoolStagedWarmupE2ETest extends BaseE2ETest {
                                     if (sandbox.getId().equals(failedSandboxId.get())) {
                                         return false;
                                     }
-                                    return true;
+                                    return sandbox.ping();
                                 })
                         .warmupPostPrepareHealthCheckTimeout(Duration.ofSeconds(2))
                         .build();
