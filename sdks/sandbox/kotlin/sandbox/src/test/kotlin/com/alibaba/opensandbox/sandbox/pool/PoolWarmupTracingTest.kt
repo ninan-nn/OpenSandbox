@@ -198,6 +198,7 @@ class PoolWarmupTracingTest {
         pool.start()
         try {
             awaitCondition { pool.snapshot().failureCount >= 1 }
+            awaitCondition { spanExporter.finishedSpanItems.any { it.name == PoolTracer.WARMUP_ROOT_SPAN } }
             val spans = spanExporter.finishedSpanItems
             val root = spans.single { it.name == PoolTracer.WARMUP_ROOT_SPAN }
             assertEquals("failure", root.attributes[AttributeKey.stringKey(PoolTracer.ATTR_RESULT)])
