@@ -1463,8 +1463,15 @@ class Sandbox internal constructor(
             return this
         }
 
-        /** Uses a separate transport only for the lifecycle create request. */
-        internal fun initializationConnectionConfig(connectionConfig: ConnectionConfig): Builder {
+        /**
+         * Uses a separate transport only for the lifecycle create request.
+         *
+         * The returned [Sandbox] retains [connectionConfig] configured through
+         * [connectionConfig]. This is primarily intended for pooled custom creators that use
+         * [com.alibaba.opensandbox.sandbox.domain.pool.PooledSandboxCreateContext.createConnectionConfig]
+         * to disable create retries without changing subsequent sandbox operations.
+         */
+        fun initializationConnectionConfig(connectionConfig: ConnectionConfig): Builder {
             this.initializationConnectionConfig = connectionConfig
             return this
         }

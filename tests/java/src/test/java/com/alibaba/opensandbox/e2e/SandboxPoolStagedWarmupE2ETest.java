@@ -421,6 +421,7 @@ public class SandboxPoolStagedWarmupE2ETest extends BaseE2ETest {
                 .readyTimeout(context.getReadyTimeout())
                 .healthCheckPollingInterval(context.getHealthCheckPollingInterval())
                 .skipHealthCheck(context.getSkipHealthCheck())
+                .initializationConnectionConfig(context.getCreateConnectionConfig())
                 .build();
     }
 
