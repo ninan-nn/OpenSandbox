@@ -45,6 +45,7 @@ import com.alibaba.opensandbox.sandbox.internal.isCausedByInterruption
 import okhttp3.ConnectionPool
 import org.slf4j.LoggerFactory
 import java.time.Duration
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.DelayQueue
 import java.util.concurrent.Delayed
@@ -212,7 +213,16 @@ class SandboxPool internal constructor(
                     Thread(r, "sandbox-pool-reconcile-${config.poolName}").apply { isDaemon = true }
                 }
             scheduler = exec
-            val run = RunContext(runSequence.incrementAndGet(), exec, createExec, warmupExec, config.warmupConcurrency)
+            val cancellationCleanupExec = createCancellationCleanupExecutor()
+            val run =
+                RunContext(
+                    runSequence.incrementAndGet(),
+                    exec,
+                    createExec,
+                    warmupExec,
+                    cancellationCleanupExec,
+                    config.warmupConcurrency,
+                )
             currentRun = run
             dispatcher.execute { dispatchWarmups(run) }
             val primaryHeartbeatIntervalMs =
@@ -970,6 +980,25 @@ class SandboxPool internal constructor(
             ThreadPoolExecutor.AbortPolicy(),
         )
 
+    private fun createCancellationCleanupExecutor(): ThreadPoolExecutor =
+        ThreadPoolExecutor(
+            CANCELLATION_CLEANUP_CONCURRENCY,
+            CANCELLATION_CLEANUP_CONCURRENCY,
+            EXECUTOR_KEEP_ALIVE_SECONDS,
+            TimeUnit.SECONDS,
+            ArrayBlockingQueue(CANCELLATION_CLEANUP_QUEUE_CAPACITY),
+            { runnable ->
+                Thread(runnable, "sandbox-pool-cancel-cleanup-${config.poolName}").apply { isDaemon = true }
+            },
+            ThreadPoolExecutor.AbortPolicy(),
+        ).apply {
+            // Core threads are still created lazily on first submission, then released when idle.
+            // Do not shut this executor down with the main run executors: an uncooperative warmup
+            // worker may observe retirement and submit its cleanup after forced shutdown returns.
+            // Once those late tasks finish, no live thread retains the retired run or this executor.
+            allowCoreThreadTimeOut(true)
+        }
+
     private fun runReconcileTick(run: RunContext) {
         if (!isCurrentRun(run) || lifecycleState.get() != LifecycleState.RUNNING) return
         if (!isPoolNamespaceActive()) {
@@ -1052,9 +1081,96 @@ class SandboxPool internal constructor(
         run: RunContext,
         source: String,
     ) {
+        val sandboxIds = mutableListOf<String>()
         run.delayQueue.toList().forEach { task ->
             if (run.delayQueue.remove(task)) {
-                task.completeCancelled(source)
+                task.completeCancelledLocally(source)?.let(sandboxIds::add)
+            }
+        }
+        scheduleCancelledWarmupCleanup(run, sandboxIds, source)
+    }
+
+    /**
+     * Remote termination is deliberately detached from warmup cancellation. Cancellation may run
+     * on the shutdown caller or the single reconcile scheduler and must only perform bounded local
+     * work. Rejection never falls back to inline execution: the sandbox will expire server-side.
+     */
+    private fun scheduleCancelledWarmupCleanup(
+        run: RunContext,
+        sandboxIds: List<String>,
+        source: String,
+    ) {
+        if (sandboxIds.isEmpty()) return
+        val chunkSize = ceil(sandboxIds.size.toDouble() / CANCELLATION_CLEANUP_CONCURRENCY).toInt()
+        sandboxIds.chunked(chunkSize.coerceAtLeast(1)).forEach { chunk ->
+            try {
+                run.cancellationCleanupExecutor.execute {
+                    killCancelledWarmups(chunk, source)
+                }
+            } catch (e: RejectedExecutionException) {
+                logger.warn(
+                    "Cancelled warmup cleanup rejected (best-effort, will expire server-side): " +
+                        "pool_name={} count={} source={} error={}",
+                    config.poolName,
+                    chunk.size,
+                    source,
+                    e.message,
+                )
+            }
+        }
+    }
+
+    /** Uses an independent manager because the pool-owned manager may close during shutdown. */
+    private fun killCancelledWarmups(
+        sandboxIds: List<String>,
+        source: String,
+    ) {
+        val manager =
+            try {
+                createSandboxManager()
+            } catch (e: Exception) {
+                logger.warn(
+                    "Failed to create manager for cancelled warmup cleanup: " +
+                        "pool_name={} count={} source={} error={}",
+                    config.poolName,
+                    sandboxIds.size,
+                    source,
+                    e.message,
+                )
+                return
+            }
+        try {
+            sandboxIds.forEach { sandboxId ->
+                try {
+                    manager.killSandbox(sandboxId)
+                    logger.debug(
+                        "Killed cancelled warmup sandbox: pool_name={} sandbox_id={} source={}",
+                        config.poolName,
+                        sandboxId,
+                        source,
+                    )
+                } catch (e: Exception) {
+                    logger.warn(
+                        "Failed to kill cancelled warmup sandbox (best-effort, will expire server-side): " +
+                            "pool_name={} sandbox_id={} source={} error={}",
+                        config.poolName,
+                        sandboxId,
+                        source,
+                        e.message,
+                    )
+                }
+            }
+        } finally {
+            try {
+                manager.close()
+            } catch (e: Exception) {
+                logger.warn(
+                    "Failed to close manager after cancelled warmup cleanup: " +
+                        "pool_name={} source={} error={}",
+                    config.poolName,
+                    source,
+                    e.message,
+                )
             }
         }
     }
@@ -1319,13 +1435,20 @@ class SandboxPool internal constructor(
         }
 
         fun completeCancelled(source: String) {
-            if (!completed.compareAndSet(false, true)) return
+            val sandboxId = completeCancelledLocally(source) ?: return
+            scheduleCancelledWarmupCleanup(run, listOf(sandboxId), source)
+        }
+
+        fun completeCancelledLocally(source: String): String? {
+            if (!completed.compareAndSet(false, true)) return null
+            var sandboxId: String? = null
             try {
-                cleanupSandbox(null)
+                sandboxId = closeCancelledSandboxLocally()
                 trace?.endDropped(source)
             } finally {
                 finish()
             }
+            return sandboxId
         }
 
         private fun completeDropped(source: String) {
@@ -1349,6 +1472,26 @@ class SandboxPool internal constructor(
                 }
                 localResourcesClosed = true
             }
+        }
+
+        private fun closeCancelledSandboxLocally(): String? {
+            val current = sandbox ?: return null
+            if (localResourcesClosed) return null
+            val sandboxId = current.id
+            try {
+                current.close()
+            } catch (closeFailure: Throwable) {
+                logger.warn(
+                    "Pool cancelled warmup local cleanup failed: pool_name={} sandbox_id={} error={}",
+                    config.poolName,
+                    sandboxId,
+                    closeFailure.message,
+                )
+            } finally {
+                localResourcesClosed = true
+                sandbox = null
+            }
+            return sandboxId
         }
 
         private fun finish() {
@@ -1978,6 +2121,7 @@ class SandboxPool internal constructor(
         val scheduler: ScheduledExecutorService,
         val createExecutor: ExecutorService,
         val warmupExecutor: ExecutorService,
+        val cancellationCleanupExecutor: ExecutorService,
         warmupConcurrency: Int,
     ) {
         val active = AtomicBoolean(true)
@@ -2017,6 +2161,8 @@ class SandboxPool internal constructor(
         private const val RECONCILE_INTERVAL_MS = 1_000L
         private const val CREATE_EXECUTOR_HEADROOM = 1.2
         private const val EXECUTOR_KEEP_ALIVE_SECONDS = 30L
+        private const val CANCELLATION_CLEANUP_CONCURRENCY = 4
+        private const val CANCELLATION_CLEANUP_QUEUE_CAPACITY = 256
         private val DISPATCH_REJECTION_RETRY_NANOS = TimeUnit.MILLISECONDS.toNanos(10)
 
         /** Keep-alive of the pool-created shared connection pool. */
