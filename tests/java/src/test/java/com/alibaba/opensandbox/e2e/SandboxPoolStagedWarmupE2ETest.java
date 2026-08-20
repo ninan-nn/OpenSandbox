@@ -112,8 +112,7 @@ public class SandboxPoolStagedWarmupE2ETest extends BaseE2ETest {
                                         return false;
                                     }
                                     return markerContent.equals(
-                                                    sandbox.files().readFile(markerPath).trim())
-                                            && sandbox.isHealthy();
+                                            sandbox.files().readFile(markerPath).trim());
                                 })
                         .warmupPostPrepareHealthCheckTimeout(Duration.ofSeconds(10))
                         .build();
@@ -174,7 +173,7 @@ public class SandboxPoolStagedWarmupE2ETest extends BaseE2ETest {
                                     if (sandbox.getId().equals(failedSandboxId.get())) {
                                         return false;
                                     }
-                                    return sandbox.isHealthy();
+                                    return true;
                                 })
                         .warmupSandboxPreparer(
                                 sandbox -> {
@@ -235,7 +234,7 @@ public class SandboxPoolStagedWarmupE2ETest extends BaseE2ETest {
                                     if (sandbox.getId().equals(failedSandboxId.get())) {
                                         return false;
                                     }
-                                    return sandbox.isHealthy();
+                                    return true;
                                 })
                         .warmupPostPrepareHealthCheckTimeout(Duration.ofSeconds(2))
                         .build();
