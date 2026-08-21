@@ -20,6 +20,7 @@ import com.alibaba.opensandbox.sandbox.config.ConnectionConfig
 import com.alibaba.opensandbox.sandbox.transport.RetryInterceptor
 import com.alibaba.opensandbox.sandbox.transport.RetryPolicy
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.time.Duration
@@ -43,6 +44,17 @@ class HttpClientProviderTest {
                 assertFalse(provider.sseClient.retryOnConnectionFailure)
                 assertFalse(provider.sseClient.interceptors.any { it is RetryInterceptor })
             }
+        }
+    }
+
+    @Test
+    fun `staged warmup health client is single attempt and shares transport resources`() {
+        HttpClientProvider(ConnectionConfig.builder().build().copyForStagedWarmup()).use { provider ->
+            assertTrue(provider.httpClient.interceptors.any { it is RetryInterceptor })
+            assertFalse(provider.singleAttemptClient.retryOnConnectionFailure)
+            assertFalse(provider.singleAttemptClient.interceptors.any { it is RetryInterceptor })
+            assertSame(provider.httpClient.dispatcher, provider.singleAttemptClient.dispatcher)
+            assertSame(provider.httpClient.connectionPool, provider.singleAttemptClient.connectionPool)
         }
     }
 

@@ -159,6 +159,7 @@ class SandboxPoolAsyncWarmupTest {
             val context = contextRef.get()
             assertEquals(PooledSandboxCreateContext.Reason.WARMUP, context.reason)
             assertTrue(context.skipHealthCheck)
+            assertTrue(context.connectionConfig.singleAttemptHealthChecks)
             HttpClientProvider(context.connectionConfig).use { provider ->
                 assertTrue(provider.authenticatedClient.retryOnConnectionFailure)
             }
@@ -195,6 +196,7 @@ class SandboxPoolAsyncWarmupTest {
             val context = contextRef.get()
             assertEquals(PooledSandboxCreateContext.Reason.DIRECT_CREATE, context.reason)
             assertFalse(context.skipHealthCheck)
+            assertFalse(context.connectionConfig.singleAttemptHealthChecks)
             HttpClientProvider(context.createConnectionConfig).use { provider ->
                 assertTrue(provider.authenticatedClient.retryOnConnectionFailure)
             }

@@ -159,6 +159,13 @@ class SandboxPool internal constructor(
         sharedConnectionPool?.let { connectionConfig.copyWithConnectionPool(it) } ?: connectionConfig
 
     /**
+     * Temporary Sandbox instances used by staged warmup keep normal retry behavior for
+     * lifecycle and prepare operations, but their health probes are single-attempt because
+     * the DelayQueue owns health retry, interval, and TTL.
+     */
+    private val warmupConnectionConfig: ConnectionConfig = poolConnectionConfig.copyForStagedWarmup()
+
+    /**
      * The default idle-sandbox connector, resolved after [poolConnectionConfig]
      * so acquired sandboxes share the pool's connection pool.
      */
@@ -1692,8 +1699,8 @@ class SandboxPool internal constructor(
                     .readyTimeout(config.warmupReadyTimeout)
                     .healthCheckPollingInterval(config.warmupHealthCheckPollingInterval)
                     .skipHealthCheck(true)
-                    .connectionConfig(poolConnectionConfig)
-                    .initializationConnectionConfig(poolConnectionConfig.copyForSingleAttempt()),
+                    .connectionConfig(warmupConnectionConfig)
+                    .initializationConnectionConfig(warmupConnectionConfig.copyForSingleAttempt()),
             )
         config.warmupHealthCheck?.let { builder.healthCheck(it) }
         return builder.build()
@@ -1851,6 +1858,12 @@ class SandboxPool internal constructor(
         skipHealthCheck: Boolean,
         customHealthCheck: ((Sandbox) -> Boolean)?,
     ): Sandbox {
+        val operationConnectionConfig =
+            if (reason == PooledSandboxCreateContext.Reason.WARMUP) {
+                warmupConnectionConfig
+            } else {
+                poolConnectionConfig
+            }
         val context =
             PooledSandboxCreateContext(
                 poolName = config.poolName,
@@ -1861,12 +1874,12 @@ class SandboxPool internal constructor(
                 healthCheckPollingInterval = healthCheckPollingInterval,
                 skipHealthCheck = skipHealthCheck,
                 healthCheck = customHealthCheck,
-                connectionConfig = poolConnectionConfig,
+                connectionConfig = operationConnectionConfig,
                 createConnectionConfig =
                     if (reason == PooledSandboxCreateContext.Reason.WARMUP) {
-                        poolConnectionConfig.copyForSingleAttempt()
+                        operationConnectionConfig.copyForSingleAttempt()
                     } else {
-                        poolConnectionConfig
+                        operationConnectionConfig
                     },
             )
         return creator.create(context)
