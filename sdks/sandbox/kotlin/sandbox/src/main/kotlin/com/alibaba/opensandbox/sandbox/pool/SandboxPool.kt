@@ -148,22 +148,26 @@ class SandboxPool internal constructor(
         }
 
     /**
-     * The [ConnectionConfig] used for every sandbox the pool creates
-     * (warmup, direct create, idle connect). When [sharedConnectionPool] was
-     * created it is injected here so all sandbox HTTP clients reuse it. The
-     * pool's internal manager client deliberately keeps
-     * [ConnectionConfig.copyWithoutConnectionPool] semantics and is not part
-     * of this sharing.
+     * The [ConnectionConfig] used for direct create and idle connect. When
+     * [sharedConnectionPool] was created it is injected here so foreground
+     * sandbox clients reuse it. The pool's internal manager client and default
+     * staged-warmup sandboxes are deliberately not part of this sharing.
      */
     private val poolConnectionConfig: ConnectionConfig =
         sharedConnectionPool?.let { connectionConfig.copyWithConnectionPool(it) } ?: connectionConfig
 
     /**
-     * Temporary Sandbox instances used by staged warmup keep normal retry behavior for
-     * lifecycle and prepare operations, but their health probes are single-attempt because
-     * the DelayQueue owns health retry, interval, and TTL.
+     * Temporary Sandbox instances used by staged warmup own their default connection pool so
+     * thousands of mutually incompatible endpoint routes are not accumulated in one giant pool.
+     * An explicitly user-provided connection pool is still honored. Health probes are
+     * single-attempt because the DelayQueue owns health retry, interval, and TTL.
      */
-    private val warmupConnectionConfig: ConnectionConfig = poolConnectionConfig.copyForStagedWarmup()
+    private val warmupConnectionConfig: ConnectionConfig =
+        if (sharedConnectionPool == null) {
+            poolConnectionConfig.copyForStagedWarmup()
+        } else {
+            connectionConfig.copyForStagedWarmup()
+        }
 
     /**
      * The default idle-sandbox connector, resolved after [poolConnectionConfig]
