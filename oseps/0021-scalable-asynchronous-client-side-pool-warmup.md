@@ -512,6 +512,18 @@ At minimum, the Kotlin Pool should expose or record:
 
 Per-sandbox or task IDs belong in traces and structured logs, not metric labels.
 
+> **TODO — warmup metrics and observability follow-up:** The staged pipeline
+> narrows the existing `sandbox.create` event to the create/connect stage. It no
+> longer represents the complete Pool warmup outcome, so readiness, prepare,
+> post-prepare validation, renew, commit, discard, and cancellation failures are
+> not fully visible through the existing lifecycle metric. Add a distinct
+> `sandbox.pool.warmup` event and end-to-end warmup instruments in a follow-up.
+> Reuse the existing lifecycle metrics reporter transport, but preserve
+> `sandbox.create` semantics. This requires a backward-compatible lifecycle
+> metrics contract and server-side ingestion/export support before SDKs start
+> emitting the new event. Until then, this observability gap is an accepted
+> temporary limitation of the implementation.
+
 ## Test Plan
 
 Unit and integration tests must cover:
