@@ -18,6 +18,7 @@ package com.alibaba.opensandbox.sandbox.config
 
 import com.alibaba.opensandbox.sandbox.transport.RetryPolicy
 import okhttp3.ConnectionPool
+import okhttp3.EventListener
 import java.time.Duration
 
 /**
@@ -42,6 +43,8 @@ class ConnectionConfig private constructor(
     val connectionPool: ConnectionPool?,
     /** Whether the connection pool is managed by the user */
     val connectionPoolManagedByUser: Boolean,
+    /** Optional OkHttp lifecycle listener factory for transport-level observability. */
+    val eventListenerFactory: EventListener.Factory?,
     /**
      * Use sandbox server as proxy for process execd requests.
      * Useful when the client SDK cannot access the created sandbox directly.
@@ -100,6 +103,7 @@ class ConnectionConfig private constructor(
             headers = this.headers,
             connectionPool = null,
             connectionPoolManagedByUser = false,
+            eventListenerFactory = this.eventListenerFactory,
             useServerProxy = this.useServerProxy,
             endpointCacheTtl = this.endpointCacheTtl,
             endpointCacheSize = this.endpointCacheSize,
@@ -132,6 +136,7 @@ class ConnectionConfig private constructor(
             headers = this.headers,
             connectionPool = connectionPool,
             connectionPoolManagedByUser = false,
+            eventListenerFactory = this.eventListenerFactory,
             useServerProxy = this.useServerProxy,
             endpointCacheTtl = this.endpointCacheTtl,
             endpointCacheSize = this.endpointCacheSize,
@@ -159,6 +164,7 @@ class ConnectionConfig private constructor(
             headers = this.headers,
             connectionPool = this.connectionPool,
             connectionPoolManagedByUser = this.connectionPoolManagedByUser,
+            eventListenerFactory = this.eventListenerFactory,
             useServerProxy = this.useServerProxy,
             endpointCacheTtl = this.endpointCacheTtl,
             endpointCacheSize = this.endpointCacheSize,
@@ -188,6 +194,7 @@ class ConnectionConfig private constructor(
             headers = this.headers,
             connectionPool = this.connectionPool,
             connectionPoolManagedByUser = this.connectionPoolManagedByUser,
+            eventListenerFactory = this.eventListenerFactory,
             useServerProxy = this.useServerProxy,
             endpointCacheTtl = this.endpointCacheTtl,
             endpointCacheSize = this.endpointCacheSize,
@@ -294,6 +301,8 @@ class ConnectionConfig private constructor(
         private var connectionPool: ConnectionPool? = null
 
         private var connectionPoolManagedByUser: Boolean = false
+
+        private var eventListenerFactory: EventListener.Factory? = null
 
         private var useServerProxy: Boolean = false
         private var endpointCacheTtl: Duration = Duration.ofSeconds(600)
@@ -419,6 +428,18 @@ class ConnectionConfig private constructor(
         }
 
         /**
+         * Installs an OkHttp event listener factory on every HTTP client created by the SDK.
+         *
+         * The listener receives DNS, connect, TLS, connection acquisition, request, response,
+         * and failure events. It is intended for diagnostics and metrics collection; callbacks
+         * should be fast and must not throw.
+         */
+        fun eventListenerFactory(eventListenerFactory: EventListener.Factory): Builder {
+            this.eventListenerFactory = eventListenerFactory
+            return this
+        }
+
+        /**
          * Set the retry policy applied to non-streaming requests.
          *
          * Retries are enabled by default (idempotent methods only). Pass
@@ -502,6 +523,7 @@ class ConnectionConfig private constructor(
                 headers = headers,
                 connectionPool = connectionPool,
                 connectionPoolManagedByUser = connectionPoolManagedByUser,
+                eventListenerFactory = eventListenerFactory,
                 useServerProxy = useServerProxy,
                 endpointCacheTtl = endpointCacheTtl,
                 endpointCacheSize = endpointCacheSize,

@@ -19,6 +19,7 @@ package com.alibaba.opensandbox.sandbox
 import com.alibaba.opensandbox.sandbox.config.ConnectionConfig
 import com.alibaba.opensandbox.sandbox.transport.RetryInterceptor
 import com.alibaba.opensandbox.sandbox.transport.RetryPolicy
+import okhttp3.EventListener
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -26,6 +27,23 @@ import org.junit.jupiter.api.Test
 import java.time.Duration
 
 class HttpClientProviderTest {
+    @Test
+    fun `event listener factory is installed on every client and preserved by derived configs`() {
+        val factory = EventListener.Factory { EventListener.NONE }
+        val config = ConnectionConfig.builder().eventListenerFactory(factory).build()
+
+        assertSame(factory, config.copyWithoutConnectionPool().eventListenerFactory)
+        assertSame(factory, config.copyForSingleAttempt().eventListenerFactory)
+        assertSame(factory, config.copyForStagedWarmup().eventListenerFactory)
+
+        HttpClientProvider(config).use { provider ->
+            assertSame(factory, provider.httpClient.eventListenerFactory)
+            assertSame(factory, provider.authenticatedClient.eventListenerFactory)
+            assertSame(factory, provider.sseClient.eventListenerFactory)
+            assertSame(factory, provider.singleAttemptClient.eventListenerFactory)
+        }
+    }
+
     @Test
     fun `SSE client disables all automatic retries for every retry policy`() {
         val policies =

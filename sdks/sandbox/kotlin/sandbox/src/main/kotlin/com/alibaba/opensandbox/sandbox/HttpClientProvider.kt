@@ -56,6 +56,7 @@ class HttpClientProvider(
                     .addInterceptor(UserAgentInterceptor(config.userAgent))
                     .addInterceptor(ExtraHeadersInterceptor(config.headers))
                     .addInterceptor(ClientIpInterceptor { ClientIpDetector.clientIp() })
+            config.eventListenerFactory?.let(builder::eventListenerFactory)
             if (config.enableTracing) {
                 // Propagate the active trace context (W3C traceparent) so the
                 // lifecycle server can join the same trace. No-op when there

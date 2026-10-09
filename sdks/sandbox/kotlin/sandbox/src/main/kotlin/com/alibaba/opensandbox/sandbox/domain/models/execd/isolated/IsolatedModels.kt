@@ -63,7 +63,33 @@ data class CreateIsolatedSessionRequest(
     val gid: Long? = null,
     val uidMode: String? = null,
     val idleTimeoutSeconds: Int? = null,
-)
+) {
+    /** Java source compatibility for callers compiled before overlays were introduced. */
+    constructor(
+        workspace: IsolatedWorkspaceSpec?,
+        profile: String?,
+        extraWritable: List<String>?,
+        binds: List<BindMount>?,
+        shareNet: Boolean?,
+        envPassthrough: EnvPassthroughSpec?,
+        uid: Long?,
+        gid: Long?,
+        uidMode: String?,
+        idleTimeoutSeconds: Int?,
+    ) : this(
+        workspace = workspace,
+        overlays = null,
+        profile = profile,
+        extraWritable = extraWritable,
+        binds = binds,
+        shareNet = shareNet,
+        envPassthrough = envPassthrough,
+        uid = uid,
+        gid = gid,
+        uidMode = uidMode,
+        idleTimeoutSeconds = idleTimeoutSeconds,
+    )
+}
 
 data class IsolatedSessionInfo(
     val sessionId: String,
